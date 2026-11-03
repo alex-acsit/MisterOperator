@@ -1,0 +1,9 @@
+<mistergamedescription>
+  <name>Puzzle Bobble (Neo Geo)</name>
+  <year>1994</year>
+  <manufacturer>Taito</manufacturer>
+  <category>Puzzle</category>
+  <rotation>horizontal</rotation>
+  <rbf>_Arcade/cores/NeoGeo</rbf>
+  <file delay="1" type="f" index="1" path="../../../../games/NeoGeo/pbobblen.neo"/>
+</mistergamedescription>

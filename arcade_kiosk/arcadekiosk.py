@@ -7,7 +7,7 @@ A locked-down arcade-only frontend for the MiSTer.
 
 * LOCKED mode (normal operation)
     - The MiSTer shows a full-screen game list instead of the stock menu.
-    - Players pick an arcade game (.mra) and it starts.
+    - Players pick an arcade game (.mra or .mgl) and it starts.
     - One press of the PLAYER MENU button quits the game back to the list.
     - The stock OSD, settings, consoles and scripts are not reachable.
 
@@ -61,7 +61,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from font8x8 import FONT  # noqa: E402
 
-VERSION = "1.3"
+VERSION = "1.4"
 
 CONFIG_PATH = os.path.join(HERE, "kiosk.ini")
 STATE_PATH = os.path.join(HERE, "state.json")
@@ -230,6 +230,7 @@ def log(msg):
 DEFAULTS = {
     "arcade_dir": "/media/fat/_Arcade",
     "include_subdirs": "0",
+    "include_mgl": "1",
     "exclude_dirs": "_alternatives,cores,_Organized",
     "game_list": "",
     "orientation": "all",
@@ -344,17 +345,22 @@ def _regex_text(text, tag):
 
 
 def parse_mra(path):
+    """Read the game details from an .mra or .mgl file.
+
+    .mgl (MiSTer Game Launcher) files normally hold only the core (<rbf>) and the
+    file to load, but the MiSTer ignores tags it doesn't use, so <name>, <year>,
+    <manufacturer>, <category> and <rotation> can be added to them by hand."""
     with open(path, "rb") as f:
         raw = f.read(65536).decode("utf-8", "replace")
     info = {}
     try:
         root = ET.fromstring(raw)
-        for tag in ("name", "setname", "year", "manufacturer", "rotation"):
+        for tag in ("name", "setname", "year", "manufacturer", "rotation", "rbf"):
             info[tag] = _xml_text(root, tag)
         cats = [c.text.strip() for c in root.findall("category") if c.text]
         info["category"] = cats[0] if cats else ""
     except ET.ParseError:
-        for tag in ("name", "setname", "year", "manufacturer", "rotation", "category"):
+        for tag in ("name", "setname", "year", "manufacturer", "rotation", "category", "rbf"):
             info[tag] = _regex_text(raw, tag)
     return info
 
@@ -402,15 +408,16 @@ def _clean(text):
 
 def scan_games(cfg, use_cache=True):
     root = cfg["arcade_dir"]
+    exts = (".mra", ".mgl") if flag(cfg, "include_mgl") else (".mra",)
     excludes = {d.strip().lower() for d in cfg["exclude_dirs"].split(",") if d.strip()}
     files = []
     if flag(cfg, "include_subdirs"):
         for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
             dirnames[:] = [d for d in dirnames if d.lower() not in excludes]
-            files += [os.path.join(dirpath, n) for n in filenames if n.lower().endswith(".mra")]
+            files += [os.path.join(dirpath, n) for n in filenames if n.lower().endswith(exts)]
     else:
         try:
-            files = [os.path.join(root, n) for n in os.listdir(root) if n.lower().endswith(".mra")]
+            files = [os.path.join(root, n) for n in os.listdir(root) if n.lower().endswith(exts)]
         except FileNotFoundError:
             log("arcade folder not found: %s" % root)
 
@@ -458,7 +465,12 @@ def scan_games(cfg, use_cache=True):
         if (orient == "horizontal" and vertical) or (orient == "vertical" and not vertical):
             skipped += 1
             continue
-        parts = category_parts(_clean(info.get("category", "")))
+        category = info.get("category", "")
+        is_mgl = path.lower().endswith(".mgl")
+        if is_mgl and not category and info.get("rbf"):
+            # No category in a plain .mgl: group it by its core, e.g. "_Arcade/cores/NeoGeo" -> "Neogeo".
+            category = os.path.basename(info["rbf"].replace("\\", "/")).split("_")[0]
+        parts = category_parts(_clean(category))
         if want_genres and not genre_matches(parts, want_genres):
             genre_skipped += 1
             continue
@@ -475,6 +487,7 @@ def scan_games(cfg, use_cache=True):
             "maker": _clean(info.get("manufacturer", "")),
             "genre": genre,
             "categories": parts,
+            "mgl": is_mgl,
             "vertical": vertical,
         })
 
@@ -1951,8 +1964,9 @@ def main(argv):
         cfg = load_config()
         games = scan_games(cfg, use_cache=False)
         for g in games:
-            print("%-40s %-6s %-12s %-4s %s" % (g["label"][:40], g["year"], g["genre"][:12],
-                                               "V" if g["vertical"] else "H", g["path"]))
+            print("%-40s %-6s %-12s %-2s %-4s %s" % (g["label"][:40], g["year"], g["genre"][:12],
+                                                    "V" if g["vertical"] else "H",
+                                                    "MGL" if g.get("mgl") else "MRA", g["path"]))
         print("%d games" % len(games))
         return
     if "--genres" in argv:

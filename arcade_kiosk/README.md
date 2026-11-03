@@ -66,6 +66,13 @@ follows the same setting. `arcadekiosk.py --scan` lists each game with H or V so
 check how a game is classed. (The older `hide_vertical = 1` still works and means
 `horizontal`.)
 
+**.mgl files:** `.mgl` (MiSTer Game Launcher) files in the arcade folder are listed and
+launched just like `.mra` files (for example Neo Geo games). A plain `.mgl` shows its file
+name and is grouped under its core's name as the genre (e.g. `Neogeo`). To show full
+details, add any of `<name>`, `<year>`, `<manufacturer>`, `<category>` and `<rotation>`
+inside `<mistergamedescription>`. The MiSTer ignores those tags, so the file still works
+everywhere else. `include_mgl = 0` hides them. `--scan` marks each game MRA or MGL.
+
 **Lock to genres:** `genres = Shooter, Maze` shows only those genres (comma-separated,
 not case-sensitive); `exclude_genres = Mahjong, Quiz` hides genres instead. Names come
 from the `<category>` in each `.mra`, and any part matches, so `Vertical` also picks up

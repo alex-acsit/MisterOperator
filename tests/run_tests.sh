@@ -23,5 +23,6 @@ run test_kiosk.py base
 run test_fb.py base
 run test_orient.py base orient_extra
 run test_genre.py base genre_extra
+run test_mgl.py base mgl_extra
 
 [ $fail = 0 ] && echo "ALL TESTS PASSED" || { echo "SOME TESTS FAILED"; exit 1; }
