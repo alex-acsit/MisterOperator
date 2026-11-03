@@ -1,0 +1,21 @@
+; ---------------------------------------------------------------------------
+; Arcade Kiosk - lines to add to /media/fat/MiSTer.ini
+; Back up MiSTer.ini first. Keep your existing CRT settings for games;
+; these only add what the kiosk needs.
+; ---------------------------------------------------------------------------
+
+; In the existing [MiSTer] section:
+fb_terminal=1          ; the kiosk draws on the menu core's terminal screen
+recents=0              ; nothing gets written to the SD card on each launch
+; Optional second lock on the in-game OSD. Even if a player finds a button
+; that opens it, they need this code (U D L R A B). Operators enter it after
+; unlocking. Remove if you'd rather not.
+;osd_lock=UUDDLRLR
+;osd_lock_time=5
+
+; Add this section at the end of the file. It makes the menu core (and so the
+; game list) output 320x240 at 15 kHz through the analog port.
+[menu]
+vga_scaler=1
+video_mode=320,8,32,24,240,4,3,16,6048
+; composite_sync=1     ; uncomment for SCART / JAMMA / monitors needing CSync

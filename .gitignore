@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+# Created on the MiSTer at runtime
+arcade_kiosk/state.json
+arcade_kiosk/games_cache.json
+arcade_kiosk/*.tmp
+arcade_kiosk/art/*.rgb
