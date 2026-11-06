@@ -61,7 +61,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from font8x8 import FONT  # noqa: E402
 
-VERSION = "1.5"
+VERSION = "1.5.1"
 
 CONFIG_PATH = os.path.join(HERE, "kiosk.ini")
 STATE_PATH = os.path.join(HERE, "state.json")
@@ -648,7 +648,13 @@ class Canvas:
 #   text    game names                 dim      game count, hints
 #   select  game name on the selection bar      white  message text
 THEMES = {
-    "green": {   # phosphor green
+    "green": {   # dark grey with green highlights and white text
+        "bg": (26, 28, 27), "panel": (38, 42, 40), "line": (64, 70, 67),
+        "accent": (40, 150, 85), "title": (245, 247, 246), "info": (95, 200, 130),
+        "text": (222, 226, 224), "dim": (135, 142, 138), "select": (255, 255, 255),
+        "white": (245, 247, 246),
+    },
+    "phosphor": {  # all-green terminal look
         "bg": (0, 12, 4), "panel": (0, 30, 12), "line": (0, 78, 34),
         "accent": (0, 210, 90), "title": (120, 255, 140), "info": (0, 235, 170),
         "text": (150, 225, 160), "dim": (70, 140, 90), "select": (0, 20, 6),

@@ -12,12 +12,13 @@ def check(c, m):
 
 # ---- themes
 cfg = K.load_config()
-check(cfg["theme"] == "green" and K.apply_theme(cfg)["accent"] == (0, 210, 90), "green is the default theme")
+check(cfg["theme"] == "green" and K.apply_theme(cfg)["accent"] == (40, 150, 85), "green is the default theme")
 check(K.apply_theme({"theme": "classic"})["accent"] == (255, 60, 127), "classic theme available")
+check(K.apply_theme({"theme": "phosphor"})["accent"] == (0, 210, 90), "phosphor theme available")
 p = K.apply_theme({"theme": "green", "color_accent": "#123456", "color_text": "10, 20, 30", "color_dim": "nope"})
-check(p["accent"] == (0x12, 0x34, 0x56) and p["text"] == (10, 20, 30) and p["dim"] == (70, 140, 90),
+check(p["accent"] == (0x12, 0x34, 0x56) and p["text"] == (10, 20, 30) and p["dim"] == (135, 142, 138),
       "colour overrides (#RRGGBB and r,g,b); bad value ignored")
-check(K.apply_theme({"theme": "purple"})["accent"] == (0, 210, 90), "unknown theme falls back to green")
+check(K.apply_theme({"theme": "purple"})["accent"] == (40, 150, 85), "unknown theme falls back to green")
 K.apply_theme({})
 
 # ---- idle exit

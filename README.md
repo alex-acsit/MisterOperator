@@ -75,8 +75,9 @@ follows the same setting. `arcadekiosk.py --scan` lists each game with H or V so
 check how a game is classed. (The older `hide_vertical = 1` still works and means
 `horizontal`.)
 
-**Colours:** `theme = green` (default, phosphor green) or `theme = classic` (the
-original pink and amber on navy). Any colour can be changed on its own, e.g.
+**Colours:** `theme = green` (default: dark grey with green highlights and white text),
+`theme = phosphor` (all-green terminal look) or `theme = classic` (the original pink and
+amber on navy). Any colour can be changed on its own, e.g.
 `color_accent = #00C850` for the selection bar; `kiosk.ini` lists every colour name.
 
 **Idle games:** `game_idle_exit_s = 300` quits a game back to the list after 5 minutes
