@@ -61,7 +61,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from font8x8 import FONT  # noqa: E402
 
-VERSION = "1.4"
+VERSION = "1.5"
 
 CONFIG_PATH = os.path.join(HERE, "kiosk.ini")
 STATE_PATH = os.path.join(HERE, "state.json")
@@ -264,6 +264,8 @@ DEFAULTS = {
     "ignore_devices": "",
     "log_inputs": "0",
     "remember_last": "1",
+    "game_idle_exit_s": "300",
+    "theme": "green",
 }
 
 
@@ -639,15 +641,60 @@ class Canvas:
 
 
 # Palette -------------------------------------------------------------------
-BG = (10, 12, 26)
-PANEL = (18, 21, 44)
-LINE = (42, 47, 86)
-ACCENT = (255, 60, 127)
-AMBER = (255, 179, 71)
-CYAN = (90, 209, 255)
-TEXT = (200, 203, 224)
-DIM = (120, 125, 160)
-WHITE = (255, 255, 255)
+# Each colour has a job:
+#   bg      screen background          panel    box behind art / messages
+#   line    dividers, frames           accent   selection bar, top rule, borders
+#   title   title text, year           info     genre text, scroll thumb
+#   text    game names                 dim      game count, hints
+#   select  game name on the selection bar      white  message text
+THEMES = {
+    "green": {   # phosphor green
+        "bg": (0, 12, 4), "panel": (0, 30, 12), "line": (0, 78, 34),
+        "accent": (0, 210, 90), "title": (120, 255, 140), "info": (0, 235, 170),
+        "text": (150, 225, 160), "dim": (70, 140, 90), "select": (0, 20, 6),
+        "white": (220, 255, 225),
+    },
+    "classic": {  # the original pink / amber / cyan on navy
+        "bg": (10, 12, 26), "panel": (18, 21, 44), "line": (42, 47, 86),
+        "accent": (255, 60, 127), "title": (255, 179, 71), "info": (90, 209, 255),
+        "text": (200, 203, 224), "dim": (120, 125, 160), "select": (255, 255, 255),
+        "white": (255, 255, 255),
+    },
+}
+
+
+def parse_color(text):
+    t = text.strip().lstrip("#")
+    if re.fullmatch(r"[0-9A-Fa-f]{6}", t):
+        return tuple(int(t[i:i + 2], 16) for i in (0, 2, 4))
+    parts = [p.strip() for p in text.split(",")]
+    if len(parts) == 3 and all(p.isdigit() and int(p) < 256 for p in parts):
+        return tuple(int(p) for p in parts)
+    raise ValueError(text)
+
+
+def apply_theme(cfg):
+    """Set the drawing colours from theme = and any color_<name> = overrides."""
+    global BG, PANEL, LINE, ACCENT, AMBER, CYAN, TEXT, DIM, SELECT, WHITE
+    name = cfg.get("theme", "green").strip().lower() or "green"
+    if name not in THEMES:
+        log("unknown theme %r; using green" % name)
+        name = "green"
+    pal = dict(THEMES[name])
+    for key in pal:
+        val = cfg.get("color_" + key, "").strip()
+        if val:
+            try:
+                pal[key] = parse_color(val)
+            except ValueError:
+                log("bad colour color_%s = %s (use #RRGGBB)" % (key, val))
+    BG, PANEL, LINE, ACCENT = pal["bg"], pal["panel"], pal["line"], pal["accent"]
+    AMBER, CYAN, TEXT, DIM = pal["title"], pal["info"], pal["text"], pal["dim"]
+    SELECT, WHITE = pal["select"], pal["white"]
+    return pal
+
+
+apply_theme({})
 
 
 class LauncherView:
@@ -661,6 +708,7 @@ class LauncherView:
 
     def __init__(self, cfg, games):
         self.cfg = cfg
+        apply_theme(cfg)
         self.all_games = games
         genres = sorted({g["genre"] for g in games})
         # Locked to one genre (or the list only has one): show its name, no cycling.
@@ -783,7 +831,7 @@ class LauncherView:
             g = self.games[i]
             if i == self.sel:
                 c.fill(self.LIST_X, y - 1, self.LIST_W - 6, self.ROW_H, ACCENT)
-                c.text(self.LIST_X + 4, y + 1, g["label"], WHITE, ACCENT, max_chars=24)
+                c.text(self.LIST_X + 4, y + 1, g["label"], SELECT, ACCENT, max_chars=24)
             else:
                 c.text(self.LIST_X + 4, y + 1, g["label"], TEXT, BG, max_chars=24)
 
@@ -1189,6 +1237,7 @@ class Kiosk:
         self.return_at = -1e9
         self.await_stamp = None         # CORENAME stamp to wait past after reloading the menu
         self.last_activity = time.monotonic()
+        self.game_last_input = 0
         self.attract_started = 0
         self.attract_seen_core = False
         self.attract_stamp = None
@@ -1427,6 +1476,7 @@ class Kiosk:
         self.view.overlay = None
         self.mode = S_GAME
         self.game_started = time.monotonic()
+        self.game_last_input = self.game_started
         self.game_seen_core = False
         self.menu_since = None
         mister_cmd("load_core %s" % game["path"])
@@ -1620,6 +1670,9 @@ class Kiosk:
                     self.menu_down_at = None
                 continue
 
+            if self.mode == S_GAME and self.is_activity(dev, t, c, v):
+                self.game_last_input = now
+
             if self.mode in (S_GAME, S_UNLOCKED):
                 if t == EV_KEY and v == 0 and (dev.path, c) in self.suppress:
                     self.suppress.discard((dev.path, c))
@@ -1629,6 +1682,30 @@ class Kiosk:
                 if dev.virtual:
                     dev.virtual.emit(t, c, v)
             # S_WAIT / S_RETURNING: drop everything
+
+    def is_activity(self, dev, t, c, v):
+        """A real player action: a button press, the stick/d-pad moving off centre,
+        or a spinner/trackball turning. Analogue jitter around centre doesn't count."""
+        if t == EV_KEY:
+            return v == 1
+        if t == EV_REL:
+            return v != 0
+        if t == EV_ABS:
+            d = self._direction_from(dev, t, c, v)
+            if d:
+                key = (dev.path, "idle", d[0])
+                moved = d[1] != 0 and self.dir_state.get(key, 0) != d[1]
+                self.dir_state[key] = d[1]
+                return moved
+            # Other axes (paddles, wheels, pedals): count a big enough change.
+            info = dev.absinfo.get(c)
+            if info:
+                span = max(1, info[2] - info[1])
+                key = (dev.path, "idle_abs", c)
+                last = self.dir_state.get(key)
+                self.dir_state[key] = v
+                return last is not None and abs(v - last) * 20 >= span
+        return False
 
     def _direction_from(self, dev, t, c, v):
         """Return ('y'|'x', -1/0/1) if this event is a direction change."""
@@ -1863,6 +1940,14 @@ class Kiosk:
                     and now - self.menu_down_at >= hold
                     and now - self.game_started >= float(self.cfg["exit_grace_s"])):
                 self.menu_down_at = None
+                self.exit_game()
+
+            # Nobody playing: quit the game back to the list.
+            idle_exit = float(self.cfg["game_idle_exit_s"])
+            if (self.mode == S_GAME and idle_exit > 0 and self.state["locked"]
+                    and now - self.game_last_input >= idle_exit):
+                log("no input for %d s; quitting the game" % idle_exit)
+                self.state["pending_toast"] = "GAME ENDED\nNO INPUT"
                 self.exit_game()
 
             if self.mode == S_LAUNCHER:

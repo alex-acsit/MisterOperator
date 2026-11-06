@@ -7,6 +7,8 @@ A locked-down, arcade-only frontend for a MiSTer cabinet.
 - **The operator** holds the **OPERATOR button** (1.5 s) to unlock the stock MiSTer
   menu for servicing, and holds it again to lock the cabinet.
 - While locked, players can't reach the MiSTer OSD, settings, console cores or scripts.
+- **Idle games end themselves:** if nobody touches the controls for 5 minutes during a
+  game, it quits back to the list (`game_idle_exit_s`).
 - **Attract mode:** after 90 s with no input on the list, demo games play one after
   another; any button or stick movement goes back to the list.
 
@@ -65,6 +67,15 @@ the `<rotation>` in each `.mra`; a file with no rotation counts as horizontal. A
 follows the same setting. `arcadekiosk.py --scan` lists each game with H or V so you can
 check how a game is classed. (The older `hide_vertical = 1` still works and means
 `horizontal`.)
+
+**Colours:** `theme = green` (default, phosphor green) or `theme = classic` (the
+original pink and amber on navy). Any colour can be changed on its own, e.g.
+`color_accent = #00C850` for the selection bar; `kiosk.ini` lists every colour name.
+
+**Idle games:** `game_idle_exit_s = 300` quits a game back to the list after 5 minutes
+with no input (`0` = never). Button presses, stick or d-pad moves, spinners, trackballs
+and paddles all count; small stick wobble around centre doesn't. The list then shows
+"GAME ENDED / NO INPUT" for a few seconds. It only applies while locked.
 
 **.mgl files:** `.mgl` (MiSTer Game Launcher) files in the arcade folder are listed and
 launched just like `.mra` files (for example Neo Geo games). A plain `.mgl` shows its file
