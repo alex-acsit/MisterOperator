@@ -61,7 +61,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from font8x8 import FONT  # noqa: E402
 
-VERSION = "1.5.1"
+VERSION = "1.6"
 
 CONFIG_PATH = os.path.join(HERE, "kiosk.ini")
 STATE_PATH = os.path.join(HERE, "state.json")
@@ -265,6 +265,8 @@ DEFAULTS = {
     "log_inputs": "0",
     "remember_last": "1",
     "game_idle_exit_s": "300",
+    "save_nvram": "1",
+    "nvram_save_s": "1.5",
     "theme": "green",
 }
 
@@ -361,7 +363,9 @@ def parse_mra(path):
             info[tag] = _xml_text(root, tag)
         cats = [c.text.strip() for c in root.findall("category") if c.text]
         info["category"] = cats[0] if cats else ""
+        info["nvram"] = root.find("nvram") is not None
     except ET.ParseError:
+        info["nvram"] = bool(re.search(r"<nvram\b", raw, re.I))
         for tag in ("name", "setname", "year", "manufacturer", "rotation", "category", "rbf"):
             info[tag] = _regex_text(raw, tag)
     return info
@@ -454,7 +458,7 @@ def scan_games(cfg, use_cache=True):
         except OSError:
             continue
         hit = cache.get(path)
-        if hit and hit.get("mtime") == mtime:
+        if hit and hit.get("mtime") == mtime and "nvram" in hit.get("info", {}):
             info = hit["info"]
         else:
             try:
@@ -490,6 +494,7 @@ def scan_games(cfg, use_cache=True):
             "genre": genre,
             "categories": parts,
             "mgl": is_mgl,
+            "nvram": bool(info.get("nvram")),
             "vertical": vertical,
         })
 
@@ -1166,7 +1171,7 @@ def core_stamp():
 
 def core_name():
     try:
-        with open(CORENAME_PATH) as f:
+        with open(CORENAME_PATH, errors="replace") as f:
             return f.read().strip()
     except OSError:
         return ""
@@ -1217,6 +1222,8 @@ class Kiosk:
         self.state.setdefault("locked", True)
         self.mode = S_WAIT
         self.devices = {}               # path -> PhysicalDevice
+        self.ungrabbed = {}             # path -> (first seen, carries menu/operator button)
+        self.current_game = None
         self.own_nodes = set()          # event nodes of our own virtual devices
         self.keys_dev = None            # virtual keyboard used to send F9
         self.fb = None
@@ -1285,6 +1292,9 @@ class Kiosk:
                     self.devices.pop(path).close()
                 except OSError:
                     pass
+        for path in list(self.ungrabbed):
+            if path not in present:
+                self.ungrabbed.pop(path, None)
         for path in present - set(self.devices) - self.own_nodes:
             try:
                 dev = PhysicalDevice(path)
@@ -1299,13 +1309,26 @@ class Kiosk:
             if not dev.is_input_we_want() or any(dev.matches(s) for s in ignore):
                 os.close(dev.fd)
                 continue
+            if not dev.try_grab():
+                # The MiSTer has hold of it (it grabs every controller while a core is
+                # running). Cloning it now would give the core the same controller
+                # twice and we'd see none of its presses, so wait until the game list
+                # is up, when the MiSTer lets go.
+                if path not in self.ungrabbed:
+                    log("can't take %s %s '%s' yet (in use by the MiSTer); will retry" %
+                        (path, dev.vidpid, dev.name))
+                    self.ungrabbed[path] = (time.monotonic(), self.is_control_device(dev))
+                os.close(dev.fd)
+                continue
+            if self.ungrabbed.pop(path, None):
+                log("took %s after waiting" % path)
             try:
                 dev.virtual = VirtualDevice(dev.name, (dev.bustype, dev.vendor, dev.product, dev.version),
                                             dev.keys, dev.absinfo, dev.msc,
                                             phys_suffix=os.path.basename(path))
             except Exception as e:      # never let one controller stop the kiosk
                 log("cannot create virtual clone for %s: %s" % (path, e))
-                os.close(dev.fd)
+                dev.close()
                 continue
             self.own_nodes |= dev.virtual.event_nodes
             for a, info in dev.absinfo.items():
@@ -1313,8 +1336,14 @@ class Kiosk:
             log("device added: %s %s '%s' keys=%d abs=%s" %
                 (path, dev.vidpid, dev.name, len(dev.keys), [hex(a) for a in dev.abs]))
             self.devices[path] = dev
-        for dev in self.devices.values():
-            dev.try_grab()
+
+    def is_control_device(self, dev):
+        """Does this controller carry the MENU or OPERATOR button?"""
+        for code, spec in ((self.menu_button, self.cfg["menu_device"]),
+                           (self.operator_button, self.cfg["operator_device"])):
+            if code is not None and code in dev.keys and dev.matches(spec):
+                return True
+        return False
 
     def ensure_keys_dev(self):
         if self.keys_dev is None:
@@ -1481,6 +1510,7 @@ class Kiosk:
         self.release_framebuffer(text_mode=False, clear=False)
         self.view.overlay = None
         self.mode = S_GAME
+        self.current_game = game
         self.game_started = time.monotonic()
         self.game_last_input = self.game_started
         self.game_seen_core = False
@@ -1488,9 +1518,33 @@ class Kiosk:
         mister_cmd("load_core %s" % game["path"])
         self.write_status()
 
-    def exit_game(self):
-        log("menu button: returning to launcher")
+    def save_nvram(self):
+        """Let the MiSTer save the running game's NVRAM (settings, high scores, CMOS).
+
+        The MiSTer only writes arcade NVRAM to the SD card when its on-screen menu
+        opens. Players never open it here, so without this a game such as NBA Jam
+        loses its settings and shows a CMOS error every time it starts. Opening the
+        menu for a moment triggers the save; loading the next core closes it."""
+        g = self.current_game
+        if not (g and g.get("nvram") and flag(self.cfg, "save_nvram")):
+            return
+        if core_name().upper() in ("", "MENU"):
+            return
+        try:
+            self.ensure_keys_dev()
+        except OSError as e:
+            log("nvram: no virtual keyboard (%s)" % e)
+            return
+        log("nvram: saving for %s" % g["label"])
         self.release_virtual_keys()
+        self.keys_dev.tap(KEY_NAMES["KEY_F12"])      # open the MiSTer menu -> "Saving..."
+        time.sleep(float(self.cfg["nvram_save_s"]))
+
+    def exit_game(self, reason="menu button"):
+        log("%s: returning to launcher" % reason)
+        self.release_virtual_keys()
+        self.save_nvram()
+        self.current_game = None
         self.go_menu()
         self.write_status()
 
@@ -1570,12 +1624,18 @@ class Kiosk:
         self.unmute_attract()
         if locked:
             self.state["pending_toast"] = "LOCKED"
+            self.current_game = None
             self.go_menu()
         else:
+            # Always land on the stock MiSTer menu, whether the list, a game or a
+            # demo was showing.
             if self.mode == S_LAUNCHER:
                 self.release_framebuffer()
-                mister_cmd("load_core %s" % MENU_RBF)
+            elif self.mode == S_GAME:
+                self.save_nvram()
+            self.current_game = None
             set_tty_mode(KD_TEXT)
+            mister_cmd("load_core %s" % MENU_RBF)
             self.mode = S_UNLOCKED
         self.write_status()
 
@@ -1798,7 +1858,8 @@ class Kiosk:
                            "menu_button": self.cfg["menu_button"],
                            "operator_button": self.cfg["operator_button"],
                            "devices": [{"path": d.path, "id": d.vidpid, "name": d.name,
-                                        "grabbed": d.grabbed} for d in self.devices.values()]},
+                                        "grabbed": d.grabbed} for d in self.devices.values()],
+                           "waiting_for": sorted(self.ungrabbed)},
                           f, indent=1)
         except OSError:
             pass
@@ -1903,7 +1964,7 @@ class Kiosk:
             self.mode = S_UNLOCKED
             # Grab the controllers once (they are free while the terminal screen is up),
             # so the operator button keeps working, then put the stock menu back.
-            if not all(d.grabbed for d in self.devices.values()):
+            if self.ungrabbed or not self.devices:
                 while core_name().upper() != "MENU":
                     time.sleep(0.2)
                 if self.activate_framebuffer():
@@ -1948,13 +2009,25 @@ class Kiosk:
                 self.menu_down_at = None
                 self.exit_game()
 
+            # The controller with the MENU/OPERATOR button is held by the MiSTer
+            # (e.g. it was unplugged and replugged mid-game), so neither button can
+            # work. Return to the list, where the MiSTer lets go of it.
+            if self.mode in (S_GAME, S_ATTRACT) and self.state["locked"]:
+                lost = [p for p, (t0, ctl) in self.ungrabbed.items() if ctl and now - t0 > 3]
+                if lost:
+                    log("lost the menu/operator controller (%s); back to the list" % ", ".join(lost))
+                    for p in lost:
+                        self.ungrabbed[p] = (now + 30, True)   # don't loop if it persists
+                    self.unmute_attract()
+                    self.current_game = None
+                    self.go_menu()
+
             # Nobody playing: quit the game back to the list.
             idle_exit = float(self.cfg["game_idle_exit_s"])
             if (self.mode == S_GAME and idle_exit > 0 and self.state["locked"]
                     and now - self.game_last_input >= idle_exit):
-                log("no input for %d s; quitting the game" % idle_exit)
                 self.state["pending_toast"] = "GAME ENDED\nNO INPUT"
-                self.exit_game()
+                self.exit_game("no input for %d s" % idle_exit)
 
             if self.mode == S_LAUNCHER:
                 self.tick_repeat(now)

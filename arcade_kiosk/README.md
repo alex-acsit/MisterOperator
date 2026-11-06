@@ -48,7 +48,7 @@ Built for a 15 kHz CRT (320×240 game list) and USB arcade encoders.
 | Button 1 or Start | Play | game | normal |
 | Button 2 | Next genre | game | normal |
 | Player MENU | — | **Quit to game list** | Opens MiSTer OSD |
-| OPERATOR (hold) | Unlock | Unlock | Lock and return to list |
+| OPERATOR (hold) | Unlock to MiSTer menu | Unlock to MiSTer menu | Lock and return to list |
 
 During attract mode, any button or stick movement returns to the game list. Nothing
 you press reaches the demo game.
@@ -77,6 +77,13 @@ amber on navy). Any colour can be changed on its own, e.g.
 with no input (`0` = never). Button presses, stick or d-pad moves, spinners, trackballs
 and paddles all count; small stick wobble around centre doesn't. The list then shows
 "GAME ENDED / NO INPUT" for a few seconds. It only applies while locked.
+
+**Game settings and high scores (NVRAM):** the MiSTer only saves a game's NVRAM when
+its own menu opens. So before quitting a game whose `.mra` has an `<nvram>` entry (NBA
+Jam, Mortal Kombat and similar), the kiosk opens the MiSTer menu for about 1.5 s. It shows
+"Saving..." and then the game list returns. Without this, those games lose their settings
+and show a CMOS error on every start. `save_nvram = 0` turns it off. Don't set `osd_lock`
+in `MiSTer.ini` if you use these games, as it blocks the save.
 
 **.mgl files:** `.mgl` (MiSTer Game Launcher) files in the arcade folder are listed and
 launched just like `.mra` files (for example Neo Geo games). A plain `.mgl` shows its file
@@ -145,6 +152,14 @@ Everything is logged to `/tmp/arcadekiosk.log`.
   `vga_scaler=1` and the 15 kHz `video_mode` line. Try `composite_sync=1` for SCART/JAMMA.
 - **Colours look wrong:** the log line `framebuffer ... rgb=` shows the layout the
   MiSTer reported. Send that line along with a description.
+- **CMOS error on NBA Jam or another Midway game:** the first start after installing the
+  game will show it once. Clear it the way you normally would, then quit with MENU so
+  the kiosk saves NVRAM.
+  It shouldn't come back. If buttons don't respond on that screen, set `log_inputs = 1`
+  and send `/tmp/arcadekiosk.log`.
+- **Controls stop working mid-game:** the log will show `can't take ... (in use by the
+  MiSTer)` if a controller was reconnected during a game. The kiosk goes back to the list
+  to recover. Over SSH, `arcadekiosk.py --unlock` always reaches the stock menu.
 - **Wrong button is MENU/OPERATOR:** run `arcadekiosk.py --relearn`, or set
   `log_inputs = 1`, press buttons, and read their names in the log.
 - **A controller is ignored:** run `arcadekiosk.py --devices`.

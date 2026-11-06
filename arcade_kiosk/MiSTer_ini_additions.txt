@@ -7,7 +7,9 @@
 ; In the existing [MiSTer] section:
 fb_terminal=1          ; the kiosk draws on the menu core's terminal screen
 recents=0              ; nothing gets written to the SD card on each launch
-; Optional second lock on the in-game OSD. Even if a player finds a button
+; Optional second lock on the in-game OSD. Don't use this with games that
+; keep NVRAM (NBA Jam, Mortal Kombat...): the kiosk saves their NVRAM by
+; opening the OSD for a moment, and the lock would stop the save. Even if a player finds a button
 ; that opens it, they need this code (U D L R A B). Operators enter it after
 ; unlocking. Remove if you'd rather not.
 ;osd_lock=UUDDLRLR

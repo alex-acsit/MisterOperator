@@ -25,5 +25,6 @@ run test_orient.py base orient_extra
 run test_genre.py base genre_extra
 run test_mgl.py base mgl_extra
 run test_idle.py base
+run test_nvram.py base nvram_extra
 
 [ $fail = 0 ] && echo "ALL TESTS PASSED" || { echo "SOME TESTS FAILED"; exit 1; }

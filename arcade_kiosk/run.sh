@@ -12,10 +12,21 @@ start() {
     fi
     (
         echo $BASHPID > "$SUPERVISOR_PID"
+        quick=0
         while true; do
+            started=$(date +%s)
             python3 "$DIR/arcadekiosk.py" >>/tmp/arcadekiosk.log 2>&1
-            echo "$(date +%T) kiosk exited ($?), restarting" >>/tmp/arcadekiosk.log
-            sleep 2
+            code=$?
+            # Each restart makes the MiSTer re-open every controller, so a kiosk
+            # that keeps crashing would leave the controls dead. Back off.
+            if [ $(( $(date +%s) - started )) -lt 20 ]; then quick=$((quick + 1)); else quick=0; fi
+            if [ $quick -ge 3 ]; then
+                echo "$(date +%T) kiosk exited ($code) $quick times quickly; waiting 60 s" >>/tmp/arcadekiosk.log
+                sleep 60
+            else
+                echo "$(date +%T) kiosk exited ($code), restarting" >>/tmp/arcadekiosk.log
+                sleep 2
+            fi
         done
     ) </dev/null >/dev/null 2>&1 &
     echo "Arcade Kiosk started"

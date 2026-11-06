@@ -1,0 +1,6 @@
+<misterromdescription>
+  <name>NBA Jam TE (rev 4.0 03-23-94)</name><setname>nbajamte</setname><year>1994</year>
+  <manufacturer>Midway</manufacturer><category>Sports</category><rotation>horizontal</rotation>
+  <rbf>midwaytunit</rbf>
+  <nvram index="2" size="32768"/>
+</misterromdescription>
