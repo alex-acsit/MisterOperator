@@ -48,7 +48,7 @@ Built for a 15 kHz CRT (320×240 game list) and USB arcade encoders.
 | Button 1 or Start | Play | game | normal |
 | Button 2 | Next genre | game | normal |
 | Player MENU | — | **Quit to game list** | Opens MiSTer OSD |
-| OPERATOR (hold) | Unlock to MiSTer menu | Unlock to MiSTer menu | Lock and return to list |
+| OPERATOR (hold 1.5 s) | Unlock to MiSTer menu | Unlock to MiSTer menu | Lock and return to list |
 
 During attract mode, any button or stick movement returns to the game list. Nothing
 you press reaches the demo game.
@@ -79,11 +79,14 @@ and paddles all count; small stick wobble around centre doesn't. The list then s
 "GAME ENDED / NO INPUT" for a few seconds. It only applies while locked.
 
 **Game settings and high scores (NVRAM):** the MiSTer only saves a game's NVRAM when
-its own menu opens. So before quitting a game whose `.mra` has an `<nvram>` entry (NBA
-Jam, Mortal Kombat and similar), the kiosk opens the MiSTer menu for about 1.5 s. It shows
-"Saving..." and then the game list returns. Without this, those games lose their settings
-and show a CMOS error on every start. `save_nvram = 0` turns it off. Don't set `osd_lock`
-in `MiSTer.ini` if you use these games, as it blocks the save.
+its own menu opens, and there is no other way to trigger it. So when quitting a game whose
+`.mra` has an `<nvram>` entry (NBA Jam, Mortal Kombat and similar), the kiosk flashes the
+MiSTer menu open for about 0.3 s. Without this, those games lose their settings and show
+a CMOS error on every start. `save_nvram` sets how often:
+`once` (default) keeps saving only until the game has a good save (one made after at
+least a minute of play), so the flash stops after that but new high scores aren't kept;
+`always` saves on every quit; `off` never saves. Don't set `osd_lock` in `MiSTer.ini` if
+you use these games, as it blocks the save.
 
 **.mgl files:** `.mgl` (MiSTer Game Launcher) files in the arcade folder are listed and
 launched just like `.mra` files (for example Neo Geo games). A plain `.mgl` shows its file
@@ -160,6 +163,10 @@ Everything is logged to `/tmp/arcadekiosk.log`.
 - **Controls stop working mid-game:** the log will show `can't take ... (in use by the
   MiSTer)` if a controller was reconnected during a game. The kiosk goes back to the list
   to recover. Over SSH, `arcadekiosk.py --unlock` always reaches the stock menu.
+- **Operator button does nothing:** it has to be held for 1.5 s (`operator_hold_ms`;
+  `0` makes a single press work). On the game list it shows "KEEP HOLDING TO UNLOCK".
+  Every press is written to the log as `operator button down` / `released`. No such line
+  means the kiosk isn't seeing that button; run `arcadekiosk.py --relearn`.
 - **Wrong button is MENU/OPERATOR:** run `arcadekiosk.py --relearn`, or set
   `log_inputs = 1`, press buttons, and read their names in the log.
 - **A controller is ignored:** run `arcadekiosk.py --devices`.

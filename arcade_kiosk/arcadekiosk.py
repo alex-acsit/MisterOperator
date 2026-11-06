@@ -61,7 +61,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from font8x8 import FONT  # noqa: E402
 
-VERSION = "1.6"
+VERSION = "1.6.1"
 
 CONFIG_PATH = os.path.join(HERE, "kiosk.ini")
 STATE_PATH = os.path.join(HERE, "state.json")
@@ -265,8 +265,9 @@ DEFAULTS = {
     "log_inputs": "0",
     "remember_last": "1",
     "game_idle_exit_s": "300",
-    "save_nvram": "1",
-    "nvram_save_s": "1.5",
+    "save_nvram": "once",
+    "nvram_save_s": "0.3",
+    "nvram_dir": "/media/fat/config/nvram",
     "theme": "green",
 }
 
@@ -1518,27 +1519,59 @@ class Kiosk:
         mister_cmd("load_core %s" % game["path"])
         self.write_status()
 
+    def nvram_mode(self):
+        m = self.cfg.get("save_nvram", "once").strip().lower()
+        if m in ("0", "off", "no", "never", "false"):
+            return "off"
+        if m in ("always", "every", "2"):
+            return "always"
+        return "once"            # "1" from v1.6 kiosk.ini files also means once
+
+    def nvram_file(self, g):
+        base = os.path.basename(g["path"])
+        if base.lower().endswith(".mra"):
+            base = base[:-4]
+        return os.path.join(self.cfg["nvram_dir"], base + ".nvm")
+
     def save_nvram(self):
         """Let the MiSTer save the running game's NVRAM (settings, high scores, CMOS).
 
         The MiSTer only writes arcade NVRAM to the SD card when its on-screen menu
-        opens. Players never open it here, so without this a game such as NBA Jam
-        loses its settings and shows a CMOS error every time it starts. Opening the
-        menu for a moment triggers the save; loading the next core closes it."""
+        opens, and there is no command to do it otherwise. Players never open that
+        menu here, so without this a game such as NBA Jam loses its settings and
+        shows a CMOS error every time it starts.
+
+        The kiosk opens the menu (F12), waits a moment and closes it again, so it
+        appears for a fraction of a second. With save_nvram = once (default) that
+        only happens until the game has a good saved NVRAM file; = always saves on
+        every exit (keeps high scores, shows the flash each time)."""
         g = self.current_game
-        if not (g and g.get("nvram") and flag(self.cfg, "save_nvram")):
+        mode = self.nvram_mode()
+        if not (g and g.get("nvram")) or mode == "off":
             return
         if core_name().upper() in ("", "MENU"):
+            return
+        played = time.monotonic() - self.game_started
+        good = self.state.setdefault("nvram_good", [])
+        if mode == "once" and g["path"] in good and os.path.exists(self.nvram_file(g)):
             return
         try:
             self.ensure_keys_dev()
         except OSError as e:
             log("nvram: no virtual keyboard (%s)" % e)
             return
-        log("nvram: saving for %s" % g["label"])
+        log("nvram: saving for %s (played %d s)" % (g["label"], played))
         self.release_virtual_keys()
-        self.keys_dev.tap(KEY_NAMES["KEY_F12"])      # open the MiSTer menu -> "Saving..."
+        f12 = KEY_NAMES["KEY_F12"]
+        self.keys_dev.tap(f12)             # open the MiSTer menu: it saves straight away
         time.sleep(float(self.cfg["nvram_save_s"]))
+        self.keys_dev.tap(f12)             # and close it again
+        time.sleep(0.05)
+        # A save made in the first minute may have caught the game mid-way through a
+        # CMOS reset, so keep saving until one comes after a longer session.
+        if played >= 60 and g["path"] not in good:
+            good.append(g["path"])
+            save_state(self.state)
 
     def exit_game(self, reason="menu button"):
         log("%s: returning to launcher" % reason)
@@ -1711,7 +1744,19 @@ class Kiosk:
                 if v == 1:
                     self.op_down_at = now
                     self.op_fired = False
+                    log("operator button down (%s, mode %s); hold %d ms to %s" % (
+                        dev.vidpid, self.mode, int(self.cfg["operator_hold_ms"]),
+                        "unlock" if self.state["locked"] else "lock"))
+                    if self.mode == S_LAUNCHER and self.view and int(self.cfg["operator_hold_ms"]) > 0:
+                        self.view.show_toast("KEEP HOLDING\nTO UNLOCK", 5)
+                        self.need_redraw = True
                 elif v == 0:
+                    if self.op_down_at and not self.op_fired:
+                        log("operator button released after %d ms (too short)" %
+                            ((now - self.op_down_at) * 1000))
+                        if self.mode == S_LAUNCHER and self.view:
+                            self.view.show_toast("HOLD THE OPERATOR\nBUTTON TO UNLOCK", 2)
+                            self.need_redraw = True
                     self.op_down_at = None
                 continue
 

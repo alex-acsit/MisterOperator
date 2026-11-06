@@ -5,7 +5,8 @@ K.CONFIG_PATH = T + "/kiosk/kiosk.ini"; K.STATE_PATH = T + "/state.json"; K.CACH
 K.LOG_PATH = T + "/log.txt"; K.STATUS_PATH = T + "/status.json"; K.CTL_PATH = T + "/ctl"
 for k, v in (("arcade_dir", T + "/_Arcade"), ("menu_button", "BTN_BASE4"), ("operator_button", "BTN_BASE5"),
              ("menu_device", "16c0:05e1"), ("operator_device", "16c0:05e1"),
-             ("exit_grace_s", "0"), ("nvram_save_s", "0.05"), ("operator_hold_ms", "0")):
+             ("exit_grace_s", "0"), ("nvram_save_s", "0.05"), ("operator_hold_ms", "0"),
+             ("nvram_dir", T + "/nvram")):
     K.set_config_value(k, v)
 fails = 0
 def check(c, m):
@@ -52,7 +53,7 @@ def play(label):
 play("NBA Jam TE")
 del log[:]
 ev((1, 0x129, 1)); ev((1, 0x129, 0))
-check(log == ["TAP KEY_F12", "load_core " + K.MENU_RBF], "MENU on an NVRAM game: open MiSTer menu (saves), then quit: %s" % log)
+check(log == ["TAP KEY_F12", "TAP KEY_F12", "load_core " + K.MENU_RBF], "MENU on an NVRAM game: open MiSTer menu (saves), then quit: %s" % log)
 newcore("MENU"); k.poll_core(time.monotonic())
 
 play("Galaga"); del log[:]
@@ -64,12 +65,12 @@ play("NBA Jam TE"); del log[:]
 k.cfg["game_idle_exit_s"] = "0.01"; time.sleep(0.02)
 now = time.monotonic()
 if now - k.game_last_input >= 0.01: k.exit_game("no input")
-check(log == ["TAP KEY_F12", "load_core " + K.MENU_RBF], "idle exit also saves NVRAM")
+check(log == ["TAP KEY_F12", "TAP KEY_F12", "load_core " + K.MENU_RBF], "idle exit also saves NVRAM")
 k.cfg["game_idle_exit_s"] = "0"; newcore("MENU"); k.poll_core(time.monotonic())
 
 play("NBA Jam TE"); del log[:]
 ev((1, 0x12a, 1)); tick(); ev((1, 0x12a, 0))
-check(k.mode == "unlocked" and log == ["TAP KEY_F12", "load_core " + K.MENU_RBF],
+check(k.mode == "unlocked" and log == ["TAP KEY_F12", "TAP KEY_F12", "load_core " + K.MENU_RBF],
       "OPERATOR during a game: saves NVRAM and goes to the stock MiSTer menu: %s" % log)
 n = len(d.virtual.out); ev((1, 0x129, 1))
 check(d.virtual.out[n:] == [(1, 0x129, 1)], "unlocked: MENU reaches the MiSTer (opens its menu)")
@@ -79,6 +80,30 @@ ev((1, 0x12a, 1)); tick(); ev((1, 0x12a, 0))
 check(k.state["locked"] and log == ["load_core " + K.MENU_RBF], "OPERATOR again locks")
 newcore("MENU"); k.poll_core(time.monotonic())
 check(k.mode == "launcher", "back to the list")
+# once (default): keeps saving until a save after a long enough game, then stops
+import os
+os.makedirs(T + "/nvram", exist_ok=True)
+open(T + "/nvram/NBA Jam TE (rev 4.0 03-23-94).nvm", "wb").write(b"x")
+check(k.nvram_mode() == "once", "default mode is once")
+play("NBA Jam TE"); k.game_started -= 120; del log[:]
+ev((1, 0x129, 1)); ev((1, 0x129, 0))
+check(log[0] == "TAP KEY_F12" and games["NBA Jam TE"]["path"] in k.state["nvram_good"], "long game: saved and marked good")
+newcore("MENU"); k.poll_core(time.monotonic())
+play("NBA Jam TE"); del log[:]
+ev((1, 0x129, 1)); ev((1, 0x129, 0))
+check(log == ["load_core " + K.MENU_RBF], "once: no menu flash after a good save")
+newcore("MENU"); k.poll_core(time.monotonic())
+os.remove(T + "/nvram/NBA Jam TE (rev 4.0 03-23-94).nvm")
+play("NBA Jam TE"); del log[:]
+ev((1, 0x129, 1)); ev((1, 0x129, 0))
+check(log[0] == "TAP KEY_F12", "once: saves again if the .nvm file is gone")
+newcore("MENU"); k.poll_core(time.monotonic())
+k.cfg["save_nvram"] = "always"; play("NBA Jam TE"); k.game_started -= 120; del log[:]
+ev((1, 0x129, 1)); ev((1, 0x129, 0))
+check(log[0] == "TAP KEY_F12", "always: saves every time")
+newcore("MENU"); k.poll_core(time.monotonic())
+k.cfg["save_nvram"] = "1"
+check(k.nvram_mode() == "once", "save_nvram = 1 (v1.6 setting) means once")
 k.cfg["save_nvram"] = "0"; play("NBA Jam TE"); del log[:]
 ev((1, 0x129, 1)); ev((1, 0x129, 0))
 check(log == ["load_core " + K.MENU_RBF], "save_nvram = 0 turns it off")
