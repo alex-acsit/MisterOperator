@@ -102,6 +102,17 @@ details, add any of `<name>`, `<year>`, `<manufacturer>`, `<category>` and `<rot
 inside `<mistergamedescription>`. The MiSTer ignores those tags, so the file still works
 everywhere else. `include_mgl = 0` hides them. `--scan` marks each game MRA or MGL.
 
+**Vertical (TATE) monitor:** set `screen = tate_cw` and the list is drawn upright for a
+monitor turned on its side, with a portrait layout (list on top, picture and details
+below). If it comes out upside down, use `screen = tate_ccw`. `screen = yoko` (default) is
+a normal landscape monitor. This turns the kiosk's own screen; pair it with
+`orientation = vertical` to list only vertical games, and set `osd_rotate` in `MiSTer.ini`
+(see `MiSTer_ini_additions.txt`) so the stock MiSTer menu is readable after unlocking.
+`arcadekiosk.py --preview out.ppm` shows the list upright; add `--raw` to see it as the
+monitor receives it.
+
+![TATE layout](docs/tate.png)
+
 **Lock to genres:** `genres = Shooter, Maze` shows only those genres (comma-separated,
 not case-sensitive); `exclude_genres = Mahjong, Quiz` hides genres instead. Names come
 from the `<category>` in each `.mra`, and any part matches, so `Vertical` also picks up

@@ -49,6 +49,7 @@ import fcntl
 import json
 import mmap
 import random
+from array import array
 import os
 import re
 import select
@@ -61,7 +62,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from font8x8 import FONT  # noqa: E402
 
-VERSION = "1.6.1"
+VERSION = "1.7"
 
 CONFIG_PATH = os.path.join(HERE, "kiosk.ini")
 STATE_PATH = os.path.join(HERE, "state.json")
@@ -269,6 +270,7 @@ DEFAULTS = {
     "nvram_save_s": "0.3",
     "nvram_dir": "/media/fat/config/nvram",
     "theme": "green",
+    "screen": "yoko",
 }
 
 
@@ -675,6 +677,47 @@ THEMES = {
 }
 
 
+def screen_rotation(cfg):
+    """0 for a normal (YOKO) monitor, 90 or 270 for one turned on its side (TATE).
+    The number is how far the picture is turned clockwise to stay upright."""
+    v = cfg.get("screen", "yoko").strip().lower().replace("-", "_").replace(" ", "_")
+    if v in ("", "yoko", "horizontal", "landscape", "0"):
+        return 0
+    if v in ("tate", "tate_cw", "vertical", "vertical_cw", "cw", "90", "portrait"):
+        return 90
+    if v in ("tate_ccw", "vertical_ccw", "ccw", "270", "-90"):
+        return 270
+    log("unknown screen %r in kiosk.ini; using yoko" % v)
+    return 0
+
+
+def rotate_canvas(src, dst, rotation):
+    """Copy an upright portrait canvas onto the landscape framebuffer canvas,
+    turned 90 degrees clockwise (90) or anticlockwise (270)."""
+    w, h = src.w, src.h                      # dst must be h x w
+    if src.Bpp == 4:
+        a = array("I")
+        a.frombytes(bytes(src.buf))
+        out = array("I")
+        if rotation == 90:                   # dst row r = src column r, bottom to top
+            for r in range(w):
+                col = a[r::w]
+                col.reverse()
+                out.extend(col)
+        else:                                # dst row r = src column w-1-r, top to bottom
+            for r in range(w):
+                out.extend(a[w - 1 - r::w])
+        dst.buf[:] = out.tobytes()
+        return
+    B = src.Bpp                               # any other pixel size (slow, rarely used)
+    for r in range(w):
+        for c in range(h):
+            sy, sx = (h - 1 - c, r) if rotation == 90 else (c, w - 1 - r)
+            so = (sy * w + sx) * B
+            do = (r * h + c) * B
+            dst.buf[do:do + B] = src.buf[so:so + B]
+
+
 def parse_color(text):
     t = text.strip().lstrip("#")
     if re.fullmatch(r"[0-9A-Fa-f]{6}", t):
@@ -710,17 +753,28 @@ apply_theme({})
 
 
 class LauncherView:
-    """Lays out the 320x240 game list screen."""
+    """Lays out the game list: 320x240 for a normal (YOKO) monitor, or 240x320
+    drawn upright for a monitor turned on its side (TATE)."""
 
     ROW_H = 11
-    LIST_X, LIST_Y, LIST_W = 4, 42, 204
+    LIST_X, LIST_Y = 4, 42
     ROWS = 16
-    PANEL_X, PANEL_W = 214, 102
     ART_W, ART_H = 100, 75
 
     def __init__(self, cfg, games):
         self.cfg = cfg
         apply_theme(cfg)
+        self.portrait = screen_rotation(cfg) != 0
+        if self.portrait:
+            # List across the full width, picture and details underneath.
+            self.LIST_W, self.NAME_CHARS = 232, 27
+            self.PANEL_X, self.PANEL_Y = 6, 228
+            self.INFO_X, self.INFO_Y, self.INFO_CHARS, self.INFO_LINES = 114, 230, 15, 7
+        else:
+            # List on the left, picture and details on the right.
+            self.LIST_W, self.NAME_CHARS = 204, 24
+            self.PANEL_X, self.PANEL_Y = 214, 41
+            self.INFO_X, self.INFO_Y, self.INFO_CHARS, self.INFO_LINES = 214, 124, 12, 7
         self.all_games = games
         genres = sorted({g["genre"] for g in games})
         # Locked to one genre (or the list only has one): show its name, no cycling.
@@ -843,9 +897,9 @@ class LauncherView:
             g = self.games[i]
             if i == self.sel:
                 c.fill(self.LIST_X, y - 1, self.LIST_W - 6, self.ROW_H, ACCENT)
-                c.text(self.LIST_X + 4, y + 1, g["label"], SELECT, ACCENT, max_chars=24)
+                c.text(self.LIST_X + 4, y + 1, g["label"], SELECT, ACCENT, max_chars=self.NAME_CHARS)
             else:
-                c.text(self.LIST_X + 4, y + 1, g["label"], TEXT, BG, max_chars=24)
+                c.text(self.LIST_X + 4, y + 1, g["label"], TEXT, BG, max_chars=self.NAME_CHARS)
 
         # scroll bar
         sb_x = self.LIST_X + self.LIST_W - 3
@@ -856,11 +910,15 @@ class LauncherView:
             ty = (sb_h - th) * self.top // (len(self.games) - self.ROWS)
             c.fill(sb_x, self.LIST_Y - 1 + ty, 2, th, CYAN)
 
-        # side panel
+        # picture and details: beside the list (YOKO) or under it (TATE)
         px = self.PANEL_X
-        c.fill(px - 3, 28, 1, 196, LINE)
+        list_bottom = self.LIST_Y - 1 + self.ROWS * self.ROW_H
+        if self.portrait:
+            c.fill(0, list_bottom + 4, c.w, 1, LINE)
+        else:
+            c.fill(px - 3, 28, 1, 196, LINE)
         g = self.current()
-        ay = self.LIST_Y - 1
+        ay = self.PANEL_Y
         c.frame(px - 1, ay - 1, self.ART_W + 2, self.ART_H + 2, LINE)
         art = self._art(g) if g else None
         if art:
@@ -871,26 +929,29 @@ class LauncherView:
                 initial = g["label"][:1].upper()
                 c.text_center(px + self.ART_W // 2, ay + 22, initial, AMBER, PANEL, scale=4)
         if g:
-            y = ay + self.ART_H + 8
+            y = self.INFO_Y
+            n = self.INFO_CHARS
             lines = []
             maker = g["maker"] or "Unknown"
-            lines += [(maker[i:i + 12], TEXT) for i in range(0, min(len(maker), 24), 12)]
+            lines += [(maker[i:i + n], TEXT) for i in range(0, min(len(maker), 2 * n), n)]
             if g["year"]:
                 lines.append((g["year"], AMBER))
-            lines.append((g["genre"][:12].upper(), CYAN))
+            lines.append((g["genre"][:n].upper(), CYAN))
             if g["vertical"]:
                 lines.append(("VERTICAL", DIM))
-            for text, colr in lines[:7]:
-                c.text(px, y, text, colr, BG)
+            for text, colr in lines[:self.INFO_LINES]:
+                c.text(self.INFO_X, y, text, colr, BG)
                 y += 11
 
         # footer
-        c.fill(0, 226, c.w, 1, LINE)
+        fy = c.h - 14
+        c.fill(0, fy - 4, c.w, 1, LINE)
+        fg = self.cfg["footer_genre"][:12] if len(self.genres) > 1 else ""
+        room = (c.w - 16 - (len(fg) * 8 + 8 if fg else 0)) // 8
         if blink_on:
-            c.text(8, 230, self.cfg["footer_play"][:24], AMBER, BG)
-        if len(self.genres) > 1:
-            fg = self.cfg["footer_genre"][:12]
-            c.text(c.w - 8 - len(fg) * 8, 230, fg, DIM, BG)
+            c.text(8, fy, self.cfg["footer_play"][:room], AMBER, BG)
+        if fg:
+            c.text(c.w - 8 - len(fg) * 8, fy, fg, DIM, BG)
 
         # overlays
         msg = self.overlay
@@ -904,7 +965,7 @@ class LauncherView:
             c.fill(x, y, w, h, PANEL)
             c.frame(x, y, w, h, ACCENT, 2)
             for i, l in enumerate(lines):
-                c.text_center(c.w // 2, y + 9 + i * 12, l[:36], WHITE, PANEL)
+                c.text_center(c.w // 2, y + 9 + i * 12, l[:(w - 16) // 8], WHITE, PANEL)
 
 
 # ---------------------------------------------------------------------------
@@ -1441,8 +1502,16 @@ class Kiosk:
             log("cannot open framebuffer: %s" % e)
             self.fb = None
             return False
-        self.canvas = Canvas(min(w, self.fb.xres), min(h, self.fb.yres), self.fb.fmt)
+        self.make_canvases()
         return True
+
+    def make_canvases(self):
+        w, h = int(self.cfg["fb_width"]), int(self.cfg["fb_height"])
+        self.canvas = Canvas(min(w, self.fb.xres), min(h, self.fb.yres), self.fb.fmt)
+        self.rotation = screen_rotation(self.cfg)
+        # TATE: draw upright on a portrait canvas, then turn it onto the screen.
+        self.lcanvas = (Canvas(self.canvas.h, self.canvas.w, self.fb.fmt)
+                        if self.rotation else None)
 
     def check_fb_mode(self):
         """Put our screen mode back if something else changed it."""
@@ -1458,7 +1527,7 @@ class Kiosk:
         try:
             self.fb.close()
             self.fb = Framebuffer()
-            self.canvas = Canvas(min(w, self.fb.xres), min(h, self.fb.yres), self.fb.fmt)
+            self.make_canvases()
         except OSError as e:
             log("cannot reopen framebuffer: %s" % e)
             self.fb = None
@@ -1891,7 +1960,11 @@ class Kiosk:
     def draw(self):
         if not (self.fb and self.canvas and self.view):
             return
-        self.view.draw(self.canvas, self.blink_on)
+        if getattr(self, "lcanvas", None):
+            self.view.draw(self.lcanvas, self.blink_on)
+            rotate_canvas(self.lcanvas, self.canvas, self.rotation)
+        else:
+            self.view.draw(self.canvas, self.blink_on)
         self.fb.present(self.canvas)
         self.need_redraw = False
 
@@ -2214,9 +2287,15 @@ def main(argv):
             view.set_genre(int(argv[argv.index("--genre") + 1]))
         if "--overlay" in argv:
             view.overlay = argv[argv.index("--overlay") + 1].replace("|", "\n")
-        canvas = Canvas(int(cfg["fb_width"]), int(cfg["fb_height"]), PixelFormat())
+        fw, fh = int(cfg["fb_width"]), int(cfg["fb_height"])
+        rot = screen_rotation(cfg)
+        canvas = Canvas(fh, fw, PixelFormat()) if rot else Canvas(fw, fh, PixelFormat())
         t0 = time.perf_counter()
         view.draw(canvas)
+        if rot and "--raw" in argv:            # what the monitor receives, before turning it
+            raw = Canvas(fw, fh, PixelFormat())
+            rotate_canvas(canvas, raw, rot)
+            canvas = raw
         ms = (time.perf_counter() - t0) * 1000
         canvas.save_ppm(out)
         print("wrote %s (draw %.1f ms)" % (out, ms))

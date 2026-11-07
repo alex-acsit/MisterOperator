@@ -7,6 +7,10 @@
 ; In the existing [MiSTer] section:
 fb_terminal=1          ; the kiosk draws on the menu core's terminal screen
 recents=0              ; nothing gets written to the SD card on each launch
+; Monitor turned on its side (screen = tate_cw / tate_ccw in kiosk.ini)?
+; Rotate the MiSTer's own menu too, so it's readable after unlocking:
+; 1 = rotate right, 2 = rotate left. Use whichever matches the kiosk.
+;osd_rotate=1
 ; Optional second lock on the in-game OSD. Don't use this with games that
 ; keep NVRAM (NBA Jam, Mortal Kombat...): the kiosk saves their NVRAM by
 ; opening the OSD for a moment, and the lock would stop the save. Even if a player finds a button
