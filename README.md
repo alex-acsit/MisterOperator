@@ -1,239 +1,237 @@
 # MisterOperator
 
-MiSTer frontend for retrobar operators: a locked-down, arcade-only kiosk for MiSTer FPGA cabinets.
+**A locked-down, arcade-only frontend for MiSTer FPGA cabinets, built for retrobar operators.**
 
-- **Players** pick an arcade game from a full-screen list, play it, and press the
-  **player MENU button once** to go straight back to the list.
-- **The operator** holds the **OPERATOR button** (1.5 s) to unlock the stock MiSTer
-  menu for servicing, and holds it again to lock the cabinet.
-- While locked, players can't reach the MiSTer OSD, settings, console cores or scripts.
-- **Idle games end themselves:** if nobody touches the controls for 5 minutes during a
-  game, it quits back to the list (`game_idle_exit_s`).
-- **Attract mode:** after 2 minutes with no input on the list, demo games play one after
-  another; any button or stick movement goes back to the list.
+Players get a simple game list and one button to get back to it. The operator gets a
+hidden button that unlocks the full MiSTer menu for servicing. Nothing else on the
+MiSTer is reachable while the cabinet is locked.
 
-Built for a 15 kHz CRT (320×240 game list) and USB arcade encoders.
+![The game list on a landscape (YOKO) and a vertical (TATE) monitor](docs/screens.png)
 
-![Game list](docs/launcher.png)
+Current version: **1.8**, for 15 kHz CRTs and USB arcade encoders. It also works on HDMI.
 
-## What's in the repo
+## Features
 
-The `arcade_kiosk/` and `Scripts/` folders match the SD card layout, so they can be
-copied straight onto the card.
+**For players**
+- A full-screen list of arcade games (`.mra` and `.mgl`), with genres, year, maker and
+  optional box art
+- One press of the **MENU** button quits any game straight back to the list
+- Button 2 and 3 step through genres; Button 4 opens an **A–Z letter jump**
+- **Coins put in on the list are held** as credits and inserted into the game the
+  player picks once it has loaded
+- The same panel layout (buttons 1–6) in every game
 
-| Path | Goes to | Purpose |
-|---|---|---|
-| `arcade_kiosk/arcadekiosk.py`, `font8x8.py` | `/media/fat/arcade_kiosk/` | The kiosk (Python 3, standard library only) |
-| `arcade_kiosk/kiosk.ini` | `/media/fat/arcade_kiosk/` | Settings |
-| `arcade_kiosk/run.sh` | `/media/fat/arcade_kiosk/` | Starts the kiosk at boot and restarts it if it stops |
-| `arcade_kiosk/MiSTer_ini_additions.txt` | (copy lines into `MiSTer.ini`) | 15 kHz output for the game list |
-| `arcade_kiosk/tools/make_art.py` | your PC | Optional: turns screenshots into box art |
-| `Scripts/install_arcade_kiosk.sh` | `/media/fat/Scripts/` | One-time installer |
-| `tests/` | — | Off-hardware tests (`tests/run_tests.sh`) |
-| `docs/` | — | Screenshots |
+**For operators**
+- Hold the **OPERATOR** button to unlock the stock MiSTer menu, and hold it again to lock
+- Players can't reach the MiSTer menu, settings, console cores or scripts
+- **Attract mode:** after 2 minutes on the list, demo games play until someone
+  touches the controls
+- **Idle games quit themselves** after 5 minutes with no input
+- Saves game NVRAM, so games like NBA Jam keep their settings instead of showing a
+  CMOS error
+- Restarts itself if it ever stops, and starts locked after a power cut
 
-## Install
+**For the cabinet**
+- Landscape (YOKO) or vertical (TATE) screen layouts
+- Show only horizontal or only vertical games, or lock the list to chosen genres
+- Dark grey and green theme (or `phosphor` / `classic`), with every colour adjustable
+- Python 3 standard library only, so there's nothing to install on the MiSTer
 
-1. Copy the `arcade_kiosk` and `Scripts` folders to the root of the SD card, so you
-   have `/media/fat/arcade_kiosk/arcadekiosk.py` and
-   `/media/fat/Scripts/install_arcade_kiosk.sh`.
-2. Run `install_arcade_kiosk.sh` from the MiSTer **Scripts** menu (or over SSH).
-3. Add the lines from `MiSTer_ini_additions.txt` to `/media/fat/MiSTer.ini`.
-4. **Controller mapping:** in the stock MiSTer menu, map your encoder as usual and
-   assign the OSD **Menu** function to the button you'll use as the player MENU
-   button. The kiosk intercepts that button when locked, so players can't open the
-   OSD; when unlocked, the same button opens the OSD for the operator.
-5. Reboot. The game list appears and asks you to press the **player MENU** button,
-   then the **OPERATOR** button. They're saved to `kiosk.ini`.
+## Quick start
 
-## Using it
+1. Download this repo (**Code → Download ZIP**) and copy the `arcade_kiosk` and `Scripts`
+   folders to the root of the MiSTer's SD card.
+2. On the MiSTer, run **Scripts → install_arcade_kiosk**.
+3. Copy the lines from `arcade_kiosk/MiSTer_ini_additions.txt` into
+   `/media/fat/MiSTer.ini`. These set 15 kHz output for the list and the terminal screen
+   it draws on.
+4. In the stock MiSTer menu, map your encoder as usual and assign the OSD **Menu**
+   function to the button that will be the player MENU button.
+5. Reboot. The list appears and asks you to press the **player MENU** button, then the
+   **OPERATOR** button. That's it.
 
-| Control | Game list | In a game (locked) | Unlocked |
+Settings live in `/media/fat/arcade_kiosk/kiosk.ini`. Each one is explained in the file.
+
+## Controls
+
+| Control | On the game list | In a game (locked) | Unlocked |
 |---|---|---|---|
-| Stick up / down | Move | game | normal |
-| Stick left / right | Jump to previous / next letter | game | normal |
+| Stick up / down | Move through the list | game | normal |
+| Stick left / right | Previous / next letter | game | normal |
 | Button 1 or Start | Play | game | normal |
 | Button 2 / Button 3 | Next / previous genre | game | normal |
-| Button 4 | Jump to a letter (A-Z picker) | game | normal |
-| Player MENU | — | **Quit to game list** | Opens MiSTer OSD |
-| OPERATOR (hold 1.5 s) | Unlock to MiSTer menu | Unlock to MiSTer menu | Lock and return to list |
+| Button 4 | Letter jump (A–Z picker) | game | normal |
+| Coin | Add a credit | coin | coin |
+| Player MENU | — | **Quit to the list** | Opens the MiSTer menu |
+| OPERATOR (hold 1.5 s) | Unlock | Unlock | Lock and return to the list |
 
-During attract mode, any button or stick movement returns to the game list. Nothing
-you press reaches the demo game.
+During attract mode, any button or stick movement returns to the list. A coin also
+counts as a credit, and nothing pressed reaches the demo game.
 
-Over SSH: `arcadekiosk.py --lock`, `--unlock`, `--status`, `--scan` (list the games
-found), `--devices` (list controllers), `--relearn` (set the two buttons again), `--layout`
-(each game's button layout), `--restore-maps` (undo the layout).
+<p align="center"><img src="docs/letter_picker.png" width="480" alt="Letter jump picker"></p>
 
-## Customising
+## Settings
 
-Everything is in `kiosk.ini`: title text, which games show (`game_list` whitelist,
-`orientation`), button names, hold times, and whether a hold is needed to quit a game.
+The most-used `kiosk.ini` settings:
 
-**Horizontal or vertical only:** set `orientation = horizontal` for a landscape monitor
-or `orientation = vertical` for a monitor turned on its side (`all` shows both). It uses
-the `<rotation>` in each `.mra`; a file with no rotation counts as horizontal. Attract mode
-follows the same setting. `arcadekiosk.py --scan` lists each game with H or V so you can
-check how a game is classed. (The older `hide_vertical = 1` still works and means
-`horizontal`.)
+| Setting | Default | What it does |
+|---|---|---|
+| `screen` | `yoko` | `tate_cw` / `tate_ccw` for a monitor on its side |
+| `orientation` | `all` | `horizontal` or `vertical` to list only those games |
+| `genres` / `exclude_genres` | — | Show only, or hide, these genres (e.g. `Shooter, Maze`) |
+| `theme` | `green` | `phosphor` or `classic`; `color_<name> = #RRGGBB` for single colours |
+| `title` | `ARCADE` | Heading on the list |
+| `attract_idle_s` | `120` | Seconds on the list before demos start (`0` = off) |
+| `attract_game_s` | `60` | Seconds per demo game |
+| `game_idle_exit_s` | `300` | Quit a game after this long with no input (`0` = never) |
+| `coin_buttons` | `KEY_5, KEY_6, BTN_SELECT, BTN_BASE3` | Codes your coin buttons send |
+| `coin_delay_s` | `30` | Seconds after launch before held credits go in |
+| `operator_hold_ms` | `1500` | Hold time for OPERATOR (`0` = single press) |
+| `save_nvram` | `once` | `always` keeps high scores (brief menu flash on quit); `off` never saves |
+| `standard_layout` | `1` | Same panel buttons 1–6 for every game (`0` = leave mappings alone) |
 
-**Colours:** `theme = green` (default: dark grey with green highlights and white text),
-`theme = phosphor` (all-green terminal look) or `theme = classic` (the original pink and
-amber on navy). Any colour can be changed on its own, e.g.
-`color_accent = #00C850` for the selection bar; `kiosk.ini` lists every colour name.
+<details>
+<summary><b>More about each feature</b></summary>
 
-**Idle games:** `game_idle_exit_s = 300` quits a game back to the list after 5 minutes
-with no input (`0` = never). Button presses, stick or d-pad moves, spinners, trackballs
-and paddles all count; small stick wobble around centre doesn't. The list then shows
-"GAME ENDED / NO INPUT" for a few seconds. It only applies while locked.
+**Vertical (TATE) monitor:** with `screen = tate_cw`, the list is drawn upright in a
+portrait layout: list on top, picture and details below. If it comes out upside down,
+use `screen = tate_ccw`. Pair it with `orientation = vertical`, and set `osd_rotate` in
+`MiSTer.ini` so the stock menu is readable after unlocking. Each game core handles its
+own rotation.
 
-**Game settings and high scores (NVRAM):** the MiSTer only saves a game's NVRAM when
-its own menu opens, and there is no other way to trigger it. So when quitting a game whose
-`.mra` has an `<nvram>` entry (NBA Jam, Mortal Kombat and similar), the kiosk flashes the
-MiSTer menu open for about 0.3 s. Without this, those games lose their settings and show
-a CMOS error on every start. `save_nvram` sets how often:
-`once` (default) keeps saving only until the game has a good save (one made after at
-least a minute of play), so the flash stops after that but new high scores aren't kept;
-`always` saves on every quit; `off` never saves. Don't set `osd_lock` in `MiSTer.ini` if
-you use these games, as it blocks the save.
+**Horizontal or vertical games only:** `orientation` uses the `<rotation>` in each
+`.mra`, and a file with no rotation counts as horizontal. `arcadekiosk.py --scan` marks
+each game H or V.
 
-**.mgl files:** `.mgl` (MiSTer Game Launcher) files in the arcade folder are listed and
-launched just like `.mra` files (for example Neo Geo games). A plain `.mgl` shows its file
-name and is grouped under its core's name as the genre (e.g. `Neogeo`). To show full
-details, add any of `<name>`, `<year>`, `<manufacturer>`, `<category>` and `<rotation>`
-inside `<mistergamedescription>`. The MiSTer ignores those tags, so the file still works
-everywhere else. `include_mgl = 0` hides them. `--scan` marks each game MRA or MGL.
+**Genres:** names come from each `.mra`'s `<category>`, and any part matches, so
+`Vertical` picks up `Shooter / Vertical`. `Other` means games with no category. Run
+`arcadekiosk.py --genres` to see the names your games use. Locked to one genre, the list
+shows its name and the genre buttons do nothing.
 
-**Vertical (TATE) monitor:** set `screen = tate_cw` and the list is drawn upright for a
-monitor turned on its side, with a portrait layout (list on top, picture and details
-below). If it comes out upside down, use `screen = tate_ccw`. `screen = yoko` (default) is
-a normal landscape monitor. This turns the kiosk's own screen; pair it with
-`orientation = vertical` to list only vertical games, and set `osd_rotate` in `MiSTer.ini`
-(see `MiSTer_ini_additions.txt`) so the stock MiSTer menu is readable after unlocking.
-`arcadekiosk.py --preview out.ppm` shows the list upright; add `--raw` to see it as the
-monitor receives it.
+**Letter jump:** Button 4 shows only the letters that have games. Move the stick to
+choose (the list follows), then press any button, or leave it for 6 s. The buttons are
+set with `genre_buttons`, `genre_back_buttons` and `letter_buttons`.
 
-![TATE layout](docs/tate.png)
+**Coins:** coins put in on the list or during a demo are held, shown as `CREDITS n`, and
+pressed into the chosen game after `coin_delay_s`, on the controller each one came from.
+If the player quits or the game fails before then, the credits are kept. They survive a
+reboot, demos don't start while any are waiting, and `max_credits` (9) caps them. To find
+your coin button's code, set `log_inputs = 1`, drop a coin and read
+`/tmp/arcadekiosk.log`.
 
-**Lock to genres:** `genres = Shooter, Maze` shows only those genres (comma-separated,
-not case-sensitive); `exclude_genres = Mahjong, Quiz` hides genres instead. Names come
-from the `<category>` in each `.mra`, and any part matches, so `Vertical` also picks up
-`Shooter / Vertical`. `Other` means games with no category. Run
-`arcadekiosk.py --genres` to list the genre names your games actually use. Locked to one
-genre, the list shows that genre's name and Button 2 does nothing; with several, Button 2
-cycles through only those. Attract mode and `orientation` combine with it.
-
-![Locked to one genre](docs/genre_locked.png)
-
-**Standard button layout:** every game uses the same panel buttons, laid out
-`4 5 6` over `1 2 3`. Six-button games use 1–6 in order; 1–3 button games use 1, 2, 3;
-4-button games put game button 1 on panel 4 and buttons 2–4 on panel 1–3. Start and Coin
-are kept, and Pause, Service, Test, Tilt and "Core credits" are left unmapped. Before
-each game starts, the kiosk writes that game's MiSTer mapping
+**Standard button layout:** every game uses the same panel buttons, laid out `4 5 6` over
+`1 2 3`. Six-button games use 1–6 in order; 1–3 button games use 1, 2, 3; 4-button games
+put game button 1 on panel 4 and buttons 2–4 on panel 1–3. Start and Coin are kept, and
+Pause, Service, Test, Tilt and "Core credits" are left unmapped. Before each game starts,
+the kiosk writes that game's MiSTer mapping
 (`/media/fat/config/inputs/<setname>_input_<vid>_<pid>_v4.map`), taking your encoder's
-buttons from its mapping in the MiSTer menu. `panel_layout = B,A,R,Y,X,L` says which pad
-buttons are panel 1–6 (`panel_start`, `panel_coin` likewise), `layout_4 = 4,1,2,3` etc.
-set the order for each button count, and `drop_buttons` lists the words to unmap.
-`arcadekiosk.py --layout` shows what every game gets. Earlier mappings are backed up to
-`map_backup/`; `--restore-maps` puts them back (then set `standard_layout = 0`). Mapping
-a game by hand in the MiSTer menu while unlocked is overwritten at its next start.
-`.mgl` games and `.mra` files without a `<buttons>` list are left as they are.
+buttons from its mapping in the MiSTer menu.
+- `panel_layout = B,A,R,Y,X,L` says which pad buttons are panel 1–6, and `panel_start`
+  and `panel_coin` work the same way.
+- `layout_4 = 4,1,2,3` and the other `layout_N` lines set the order for each button count.
+- `drop_buttons` lists the words to unmap.
+- `arcadekiosk.py --layout` shows what every game gets.
+- Earlier mappings are backed up to `map_backup/`. `--restore-maps` puts them back; then
+  set `standard_layout = 0`.
+- `.mgl` games and `.mra` files without a `<buttons>` list are left as they are.
 
-**Coins on the game list:** a coin put in on the list, or during a demo, is held and
-shown as `CREDITS n` in the header. Once the player picks a game, the kiosk waits
-`coin_delay_s` (30 s) for it to load, then presses coin in the game once per credit,
-on the controller the coin came from. Coins put in during a game go straight in as
-normal. If the player quits, or the game fails, before the credits go in, they're kept
-for the next game. Credits survive a reboot, demos don't start while any are waiting, and
-`max_credits` (9) caps them. Set `coin_buttons` to the codes your coin buttons send
-(defaults: `KEY_5`, `KEY_6`, `BTN_SELECT`, `BTN_BASE3`). To find yours, set
-`log_inputs = 1` and drop a coin.
+**NVRAM (settings and high scores):** the MiSTer only saves a game's NVRAM when its own
+menu opens. So on quitting a game whose `.mra` has `<nvram>`, the kiosk flashes that menu
+for about 0.3 s. With `save_nvram = once`, this stops after the game has a good save, made
+after at least a minute of play. Don't set `osd_lock` in `MiSTer.ini` if you use these
+games, as it blocks the save.
 
+**.mgl files:** listed and launched like `.mra` files (Neo Geo games, for example). A plain
+`.mgl` shows its file name and is grouped under its core's name. For full details, add
+`<name>`, `<year>`, `<manufacturer>`, `<category>` or `<rotation>` inside
+`<mistergamedescription>`; the MiSTer ignores them. `include_mgl = 0` hides `.mgl` files.
 
-**Letter jump:** Button 4 opens an A-Z picker showing only letters that have games. Move
-the stick to choose; the list follows. Then press any button, or leave it for 6 s.
-Left/right on the list still steps one letter at a time. The buttons are set with
-`genre_buttons`, `genre_back_buttons` and `letter_buttons`.
+**Attract mode:** `attract_list` (a file of chosen demo games), `attract_vertical` and
+`attract_mute` fine-tune it. Demos move from game to game directly, without the stock
+menu in between.
 
-**Attract mode:** `attract_idle_s` (seconds before demos start, default 120; `0` turns it off),
-`attract_game_s` (seconds per demo), `attract_list` (a file of chosen demo games),
-`attract_vertical` and `attract_mute`. Demos move from game to game directly, so the
-stock menu never appears between them.
+**Box art:** name screenshots after each `.mra` (or MAME set name), then run
+`python tools/make_art.py screenshots/ art/` on your PC and copy the `.rgb` files to
+`/media/fat/arcade_kiosk/art/`. Games without art show their initial.
 
-**Box art (optional):** collect screenshots named after each `.mra` (or MAME set name),
-then on your PC run `python tools/make_art.py screenshots/ art/` and copy the `.rgb`
-files to `/media/fat/arcade_kiosk/art/`. Games without art show their initial.
+</details>
+
+## Command line
+
+Over SSH, `python3 /media/fat/arcade_kiosk/arcadekiosk.py` accepts:
+
+| Option | Does |
+|---|---|
+| `--lock` / `--unlock` | Lock or unlock the running kiosk |
+| `--status` | What the kiosk is doing, and its controllers |
+| `--relearn` | Set the MENU and OPERATOR buttons again |
+| `--scan` / `--genres` | List the games found / the genre names they use |
+| `--devices` | List input devices |
+| `--layout` / `--restore-maps` | Show each game's button layout / undo it |
+| `--preview out.ppm` | Draw the list to an image file (`--raw` for TATE as sent) |
 
 ## How it works
 
-- The kiosk takes exclusive control of each USB controller and gives the MiSTer a
-  virtual copy with the same IDs, so your existing mappings still apply. During a
-  game, every press is passed through except the MENU and OPERATOR buttons; on the
-  game list, nothing reaches the MiSTer.
-- The game list is drawn on the menu core's Linux framebuffer (the screen the F9
-  terminal uses), switched to 320×240 with the MiSTer's `fb_cmd1` command.
-- Games start with `load_core <file>.mra` and quit with `load_core menu.rbf`, both
+- **Controllers:** the kiosk takes exclusive control of each USB controller and gives the
+  MiSTer a virtual copy with the same IDs, so your mappings still apply. In a game,
+  everything passes through except MENU, OPERATOR and held coins. On the list, nothing
+  reaches the MiSTer.
+- **The list:** it's drawn on the menu core's Linux framebuffer (the F9 terminal screen),
+  set to 320×240 with the MiSTer's `fb_cmd1` command.
+- **Launching:** games start with `load_core <game>` and quit with `load_core menu.rbf`,
   written to `/dev/MiSTer_cmd`. `/tmp/CORENAME` tells the kiosk what's running.
-- If a game fails to load, the list comes back with a message. If the kiosk itself
-  stops, `run.sh` restarts it within a couple of seconds.
+- **The brief stock-menu flash:** the MiSTer always shows its own menu for a moment when
+  the menu core starts, and no setting turns that off. The kiosk takes over as soon as
+  the MiSTer accepts commands, so this lasts well under a second. Going into a game, and
+  between demos, never passes through it.
 
-### Why the stock menu flashes briefly
+## First boot checklist
 
-The MiSTer always opens its own menu when the menu core starts, at boot and after
-quitting a game, and no setting turns that off. The kiosk takes over the moment the
-new menu core is ready to accept commands, so the stock menu shows for well under a
-second instead of several. Going from the list into a game, and between demo games,
-never passes through the menu at all. Removing the flash completely would need a
-modified build of the MiSTer main program.
+Most of this was built and tested off-hardware, so check these on the cabinet:
 
-## First-boot checklist on the cabinet
-
-This was built and tested off-hardware, so check these on the real machine:
-
-1. The game list appears on the CRT after boot (not the stock menu or a text console).
-2. Stick, Button 1 and Button 2 work on the list.
+1. The list appears on the screen after boot.
+2. Stick and Buttons 1–4 work on the list.
 3. A game starts, plays with all buttons, and one MENU press returns to the list.
-4. Holding OPERATOR unlocks to the stock menu; holding it again locks.
-5. In a locked game, no button (or combination) opens the MiSTer OSD.
-
-## Running the tests
-
-```
-tests/run_tests.sh
-```
-
-Needs only Python 3. The tests fake the MiSTer (`/dev/MiSTer_cmd`, `/tmp/CORENAME`, the
-framebuffer and input devices) and check game scanning and filters, button setup,
-launching and quitting, lock/unlock, attract mode, and the screen takeover timing.
+4. A coin put in on the list shows as a credit and goes into the next game after 30 s.
+5. Holding OPERATOR unlocks to the stock menu; holding it again locks.
+6. In a locked game, no button or combination opens the MiSTer menu.
 
 ## Troubleshooting
 
 Everything is logged to `/tmp/arcadekiosk.log`.
 
-- **Stock menu shows instead of the list:** check the log for `framebuffer NOT confirmed`.
-  Make sure `fb_terminal=1` is in `MiSTer.ini`. Try raising `menu_settle_s` to `1`.
-  The log line `framebuffer ready in …s` shows how long the takeover took.
-- **List shows on HDMI but not the CRT:** the `[menu]` section in `MiSTer.ini` needs
+- **Stock menu shows instead of the list:** look for `framebuffer NOT confirmed` in the
+  log. Check `fb_terminal=1` is in `MiSTer.ini`, or try `menu_settle_s = 1`.
+- **List on HDMI but not the CRT:** the `[menu]` section of `MiSTer.ini` needs
   `vga_scaler=1` and the 15 kHz `video_mode` line. Try `composite_sync=1` for SCART/JAMMA.
-- **Colours look wrong:** the log line `framebuffer ... rgb=` shows the layout the
-  MiSTer reported. Send that line along with a description.
-- **CMOS error on NBA Jam or another Midway game:** the first start after installing the
-  game will show it once. Clear it the way you normally would, then quit with MENU so
-  the kiosk saves NVRAM.
-  It shouldn't come back. If buttons don't respond on that screen, set `log_inputs = 1`
-  and send `/tmp/arcadekiosk.log`.
-- **Controls stop working mid-game:** the log will show `can't take ... (in use by the
-  MiSTer)` if a controller was reconnected during a game. The kiosk goes back to the list
-  to recover. Over SSH, `arcadekiosk.py --unlock` always reaches the stock menu.
-- **Operator button does nothing:** it has to be held for 1.5 s (`operator_hold_ms`;
-  `0` makes a single press work). On the game list it shows "KEEP HOLDING TO UNLOCK".
-  Every press is written to the log as `operator button down` / `released`. No such line
-  means the kiosk isn't seeing that button; run `arcadekiosk.py --relearn`.
-- **Wrong button is MENU/OPERATOR:** run `arcadekiosk.py --relearn`, or set
-  `log_inputs = 1`, press buttons, and read their names in the log.
-- **A controller is ignored:** run `arcadekiosk.py --devices`.
+- **CMOS error on NBA Jam or another Midway game:** you'll see it once. Clear it, play
+  for a minute, then quit with MENU so the kiosk saves NVRAM.
+- **Operator button does nothing:** it must be held for 1.5 s, and the list shows "KEEP
+  HOLDING TO UNLOCK" while you do. Each press is logged as `operator button down`; if
+  there's no such line, run `--relearn`.
+- **Coins aren't held:** set `log_inputs = 1`, drop a coin, and add the code from the log
+  to `coin_buttons`.
+- **Controls stop working mid-game:** `can't take ... (in use by the MiSTer)` in the log
+  means a controller reconnected during a game. The kiosk returns to the list to recover,
+  and `--unlock` over SSH always reaches the stock menu.
+- **A controller is ignored:** run `--devices`.
 - **Turn the kiosk off:** unlock, then remove the `# Arcade Kiosk` lines from
   `/media/fat/linux/user-startup.sh` and reboot.
+
+## Repo layout
+
+| Path | Goes to | Purpose |
+|---|---|---|
+| `arcade_kiosk/` | `/media/fat/arcade_kiosk/` | The kiosk, its settings (`kiosk.ini`) and boot script (`run.sh`) |
+| `arcade_kiosk/MiSTer_ini_additions.txt` | lines for `MiSTer.ini` | 15 kHz menu output and related settings |
+| `arcade_kiosk/tools/make_art.py` | your PC | Turns screenshots into box art |
+| `Scripts/install_arcade_kiosk.sh` | `/media/fat/Scripts/` | One-time installer |
+| `tests/` | — | Off-hardware tests: `tests/run_tests.sh` (Python 3 only) |
+| `docs/` | — | Screenshots |
+
+The tests fake the MiSTer's command pipe, core name, framebuffer and input devices. They
+check game scanning and filters, button setup, launching and quitting, lock/unlock,
+attract mode, coins, NVRAM saving, screen rotation and button layouts.
 
 ## Licence
 

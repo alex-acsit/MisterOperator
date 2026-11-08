@@ -54,6 +54,7 @@ import os
 import re
 import select
 import struct
+import textwrap
 import sys
 import time
 import xml.etree.ElementTree as ET
@@ -1000,7 +1001,12 @@ class LauncherView:
             n = self.INFO_CHARS
             lines = []
             maker = g["maker"] or "Unknown"
-            lines += [(maker[i:i + n], TEXT) for i in range(0, min(len(maker), 2 * n), n)]
+            # Two lines at most, broken between words where possible.
+            wrapped = textwrap.wrap(maker, n, break_long_words=True) or [maker[:n]]
+            if len(wrapped) > 2:
+                wrapped = wrapped[:2]
+                wrapped[1] = (wrapped[1] + "~")[:n] if len(wrapped[1]) < n else wrapped[1][:n - 1] + "~"
+            lines += [(w, TEXT) for w in wrapped]
             if g["year"]:
                 lines.append((g["year"], AMBER))
             lines.append((g["genre"][:n].upper(), CYAN))
