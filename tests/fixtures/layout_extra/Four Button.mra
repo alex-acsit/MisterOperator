@@ -1,0 +1,2 @@
+<misterromdescription><name>Four Button</name><setname>fourbtn</setname><rbf>jtx</rbf>
+<buttons names="Shot,Bomb,Special,Turbo,Start,Coin,Pause,Service" default="A,B,X,Y,Start,Select"/></misterromdescription>

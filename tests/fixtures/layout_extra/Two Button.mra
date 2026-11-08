@@ -1,0 +1,2 @@
+<misterromdescription><name>Two Button</name><setname>twobtn</setname><rbf>jtx</rbf>
+<buttons names="Fire,Jump,P1 Start,P2 Start,Coin,Test,Tilt" default="A,B,Start,Select"/></misterromdescription>

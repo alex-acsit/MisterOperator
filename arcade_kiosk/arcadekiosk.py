@@ -270,6 +270,19 @@ DEFAULTS = {
     "nvram_save_s": "0.3",
     "nvram_dir": "/media/fat/config/nvram",
     "theme": "green",
+    "standard_layout": "1",
+    "panel_layout": "B,A,R,Y,X,L",
+    "panel_start": "Start",
+    "panel_coin": "Select",
+    "drop_buttons": "pause,service,test,tilt,core credits,reset,freeze,slam",
+    "layout_1": "1",
+    "layout_2": "1,2",
+    "layout_3": "1,2,3",
+    "layout_4": "4,1,2,3",
+    "layout_5": "1,2,3,4,5",
+    "layout_6": "1,2,3,4,5,6",
+    "inputs_dir": "/media/fat/config/inputs",
+    "map_backup_dir": os.path.join(HERE, "map_backup"),
     "screen": "yoko",
 }
 
@@ -367,8 +380,12 @@ def parse_mra(path):
         cats = [c.text.strip() for c in root.findall("category") if c.text]
         info["category"] = cats[0] if cats else ""
         info["nvram"] = root.find("nvram") is not None
+        b = root.find("buttons")
+        info["buttons"] = (b.get("names") or "") if b is not None else ""
     except ET.ParseError:
         info["nvram"] = bool(re.search(r"<nvram\b", raw, re.I))
+        m = re.search(r"<buttons\b[^>]*\bnames\s*=\s*\"([^\"]*)\"", raw, re.I)
+        info["buttons"] = m.group(1) if m else ""
         for tag in ("name", "setname", "year", "manufacturer", "rotation", "category", "rbf"):
             info[tag] = _regex_text(raw, tag)
     return info
@@ -461,7 +478,7 @@ def scan_games(cfg, use_cache=True):
         except OSError:
             continue
         hit = cache.get(path)
-        if hit and hit.get("mtime") == mtime and "nvram" in hit.get("info", {}):
+        if hit and hit.get("mtime") == mtime and "buttons" in hit.get("info", {}):
             info = hit["info"]
         else:
             try:
@@ -498,6 +515,7 @@ def scan_games(cfg, use_cache=True):
             "categories": parts,
             "mgl": is_mgl,
             "nvram": bool(info.get("nvram")),
+            "buttons": info.get("buttons", ""),
             "vertical": vertical,
         })
 
@@ -1275,6 +1293,304 @@ S_WAIT, S_LAUNCHER, S_GAME, S_RETURNING, S_UNLOCKED = "wait", "launcher", "game"
 S_ATTRACT = "attract"
 
 
+# ---------------------------------------------------------------------------
+# Standard button layout
+#
+# The MiSTer keeps each arcade game's controls in
+#   /media/fat/config/inputs/<setname>_input_<vid>_<pid>_v4.map
+# (older builds: _v3.map): 38 little-endian uint32 slots. Slots 0-3 are
+# right/left/down/up and slot 4+i is the i-th name in the .mra's
+# <buttons names="...">. The controller's own mapping from the MiSTer menu is
+# input_<vid>_<pid>_v4.map, in "virtual pad" slots (A=4, B=5, X=6, Y=7, L=8,
+# R=9, Select=10, Start=11, axes 28/29). Before each game starts, the kiosk
+# writes that game's file so panel buttons 1-6 always land on the game's
+# buttons in the same order, Start and Coin are kept, and Pause/Service/etc.
+# are left unmapped.
+# ---------------------------------------------------------------------------
+
+MAP_SLOTS = 38
+PAD_SLOTS = {"RIGHT": 0, "LEFT": 1, "DOWN": 2, "UP": 3, "A": 4, "B": 5, "X": 6, "Y": 7,
+             "L": 8, "R": 9, "SELECT": 10, "START": 11, "L2": 32, "R2": 33, "L3": 34, "R3": 35}
+SYS_AXIS_X, SYS_AXIS_Y = 28, 29
+MAP_AXIS_MASK, MAP_FLAG_INVERT = 0xFFFF, 0x10000
+KEY_EMU = 0x2FF + 1        # KEY_MAX + 1 in the MiSTer source
+
+
+def read_map(path):
+    try:
+        with open(path, "rb") as f:
+            raw = f.read(MAP_SLOTS * 4)
+    except OSError:
+        return None
+    if len(raw) < 16:
+        return None
+    raw += b"\0" * (MAP_SLOTS * 4 - len(raw))
+    return list(struct.unpack("<%dI" % MAP_SLOTS, raw))
+
+
+def find_map(inputs_dir, stem):
+    """Newest-format file for this map name, e.g. stem 'input_16c0_05e1'."""
+    for ver in (4, 3):
+        p = os.path.join(inputs_dir, "%s_v%d.map" % (stem, ver))
+        if os.path.exists(p):
+            return p, read_map(p)
+    return None, None
+
+
+def device_ids(inputs_dir, vid, pid):
+    """The id strings the MiSTer uses for this controller in map file names:
+    vid_pid, plus any vid_pid_<suffix> it has saved menu maps under."""
+    base = "%04x_%04x" % (vid, pid)
+    ids = {base}
+    try:
+        for n in os.listdir(inputs_dir):
+            m = re.match(r"^input_(%s(?:_[0-9a-zA-Z]+)?)(_m)?_v\d\.map$" % re.escape(base), n)
+            if m:
+                ids.add(m.group(1))
+    except OSError:
+        pass
+    return sorted(ids)
+
+
+def dirs_from_pad_map(mmap):
+    """Same as the MiSTer's own default: d-pad codes, plus the stick axes."""
+    d = [mmap[i] & 0xFFFF for i in range(4)]
+    for axis_slot, (lo_i, hi_i) in ((SYS_AXIS_X, (1, 0)), (SYS_AXIS_Y, (3, 2))):
+        a = mmap[axis_slot]
+        if a and a != 0xFFFFFFFF:
+            mn = KEY_EMU + ((a & MAP_AXIS_MASK) << 1)
+            mx = mn + 1
+            lo, hi = (mx, mn) if a & MAP_FLAG_INVERT else (mn, mx)
+            d[lo_i] |= lo << 16
+            d[hi_i] |= hi << 16
+    return d
+
+
+def _num_list(text):
+    out = []
+    for p in text.split(","):
+        p = p.strip()
+        if p.isdigit():
+            out.append(int(p))
+    return out
+
+
+def plan_layout(cfg, names_text):
+    """Work out where each of a game's buttons goes.
+    Returns a list of (index, name, role) with role one of
+    ("panel", n) / ("start",) / ("coin",) / ("off", why)."""
+    names = [n.strip() for n in names_text.split(",")]
+    while names and not names[-1]:
+        names.pop()
+    drop = [w.strip().lower() for w in cfg.get("drop_buttons", "").split(",") if w.strip()]
+    kinds = []
+    for n in names:
+        low = n.lower()
+        if not low or low == "-":
+            kinds.append("unused")
+        elif any(w in low for w in drop):
+            kinds.append("drop")
+        elif "start" in low:
+            kinds.append("start")
+        elif "coin" in low or low.startswith("credit") or low == "insert":
+            kinds.append("coin")
+        else:
+            kinds.append("action")
+    actions = [i for i, k in enumerate(kinds) if k == "action"]
+    count = len(actions)
+    layout = _num_list(cfg.get("layout_%d" % min(count, 6), "")) if count else []
+    if count > 6:
+        layout = layout[:6]
+    plan, seen = [], set()
+    for i, (n, k) in enumerate(zip(names, kinds)):
+        if k == "action":
+            pos = actions.index(i)
+            if pos < len(layout) and 1 <= layout[pos] <= 6:
+                plan.append((i, n, ("panel", layout[pos])))
+            else:
+                plan.append((i, n, ("off", "more than 6 buttons" if pos >= 6 else "not in layout_%d" % count)))
+        elif k in ("start", "coin"):
+            if k in seen:
+                plan.append((i, n, ("off", "second %s" % k)))
+            else:
+                seen.add(k)
+                plan.append((i, n, (k,)))
+        elif k == "drop":
+            plan.append((i, n, ("off", "removed")))
+        else:
+            plan.append((i, n, ("off", "unused")))
+    return plan
+
+
+def describe_plan(plan):
+    parts = []
+    for _, n, role in plan:
+        if role[0] == "panel":
+            parts.append("%s=%d" % (n, role[1]))
+        elif role[0] in ("start", "coin"):
+            parts.append("%s=%s" % (n, role[0].upper()))
+        elif role[1] != "unused":
+            parts.append("%s=off" % n)
+    return ", ".join(parts)
+
+
+def panel_codes(cfg, mmap):
+    """Map values for panel buttons 1-6, Start and Coin, from the controller's
+    MiSTer menu mapping (names like B,A,R,Y,X,L) or from key names
+    (e.g. BTN_TRIGGER)."""
+    def one(name):
+        name = name.strip()
+        if not name:
+            return 0
+        if name.upper() in PAD_SLOTS:
+            return mmap[PAD_SLOTS[name.upper()]] if mmap else 0
+        try:
+            return parse_code(name) or 0
+        except ValueError:
+            return 0
+    panel = [one(n) for n in cfg.get("panel_layout", "").split(",")][:6]
+    panel += [0] * (6 - len(panel))
+    return panel, one(cfg.get("panel_start", "")), one(cfg.get("panel_coin", ""))
+
+
+def build_game_map(cfg, plan, mmap, old):
+    """The 38-slot map for one game on one controller, or None if it can't
+    be built (no menu mapping and no earlier map to take directions from)."""
+    if old and any(old[:4]):
+        dirs = old[:4]
+    elif mmap:
+        dirs = dirs_from_pad_map(mmap)
+    else:
+        return None
+    panel, start, coin = panel_codes(cfg, mmap)
+    if not any(panel):
+        return None
+    out = [0] * MAP_SLOTS
+    out[:4] = dirs
+    for i, _, role in plan:
+        slot = 4 + i
+        if slot >= MAP_SLOTS:
+            continue
+        if role[0] == "panel":
+            out[slot] = panel[role[1] - 1]
+        elif role[0] == "start":
+            out[slot] = start
+        elif role[0] == "coin":
+            out[slot] = coin
+    return out
+
+
+def map_core_name(game):
+    # The MiSTer names an arcade game's map after its <setname>, cut to 31 chars.
+    return (game.get("setname") or "")[:31]
+
+
+def write_game_maps(cfg, game, vidpids, log_fn=None):
+    """Write the standard layout for one game for each controller.
+    Returns the number of files written."""
+    log_fn = log_fn or log
+    if not flag(cfg, "standard_layout") or game.get("mgl"):
+        return 0
+    core = map_core_name(game)
+    if not core or not game.get("buttons"):
+        log_fn("layout: %s has no setname or button list, left as is" % game.get("file"))
+        return 0
+    plan = plan_layout(cfg, game["buttons"])
+    inputs = cfg["inputs_dir"]
+    backup = cfg["map_backup_dir"]
+    written = 0
+    for vid, pid in sorted(set(vidpids)):
+        for dev_id in device_ids(inputs, vid, pid):
+            _, mmap = find_map(inputs, "input_" + dev_id)
+            old_path, old = find_map(inputs, "%s_input_%s" % (core, dev_id))
+            new = build_game_map(cfg, plan, mmap, old)
+            if new is None:
+                log_fn("layout: no MiSTer menu mapping for %s; map the controller once in the "
+                       "MiSTer menu (input_%s_v4.map)" % (dev_id, dev_id))
+                continue
+            data = struct.pack("<%dI" % MAP_SLOTS, *new)
+            for ver in (4, 3):
+                path = os.path.join(inputs, "%s_input_%s_v%d.map" % (core, dev_id, ver))
+                try:
+                    with open(path, "rb") as f:
+                        if f.read() == data:
+                            continue
+                    _backup_map(path, backup)
+                except OSError:
+                    _note_created(path, backup)
+                try:
+                    os.makedirs(inputs, exist_ok=True)
+                    with open(path + ".tmp", "wb") as f:
+                        f.write(data)
+                        f.flush()
+                        os.fsync(f.fileno())
+                    os.replace(path + ".tmp", path)
+                    written += 1
+                except OSError as e:
+                    log_fn("layout: could not write %s: %s" % (path, e))
+    if written:
+        log_fn("layout: %s (%s): %s" % (game.get("file"), core, describe_plan(plan)))
+    return written
+
+
+def _backup_map(path, backup_dir):
+    dst = os.path.join(backup_dir, os.path.basename(path))
+    if os.path.exists(dst) or os.path.basename(path) in _created_list(backup_dir):
+        return
+    try:
+        os.makedirs(backup_dir, exist_ok=True)
+        with open(path, "rb") as f, open(dst, "wb") as g:
+            g.write(f.read())
+    except OSError as e:
+        log("layout: could not back up %s: %s" % (path, e))
+
+
+def _created_list(backup_dir):
+    try:
+        with open(os.path.join(backup_dir, "created.txt")) as f:
+            return {l.strip() for l in f if l.strip()}
+    except OSError:
+        return set()
+
+
+def _note_created(path, backup_dir):
+    name = os.path.basename(path)
+    if name in _created_list(backup_dir):
+        return
+    try:
+        os.makedirs(backup_dir, exist_ok=True)
+        with open(os.path.join(backup_dir, "created.txt"), "a") as f:
+            f.write(name + "\n")
+    except OSError:
+        pass
+
+
+def restore_maps(cfg):
+    """Put back every map the kiosk changed, and delete the ones it created."""
+    inputs, backup = cfg["inputs_dir"], cfg["map_backup_dir"]
+    restored = removed = 0
+    for name in sorted(_created_list(backup)):
+        try:
+            os.unlink(os.path.join(inputs, name))
+            removed += 1
+        except OSError:
+            pass
+    try:
+        names = [n for n in os.listdir(backup) if n.endswith(".map")]
+    except OSError:
+        names = []
+    for name in names:
+        with open(os.path.join(backup, name), "rb") as f, open(os.path.join(inputs, name), "wb") as g:
+            g.write(f.read())
+        restored += 1
+    for name in names + ["created.txt"]:
+        try:
+            os.unlink(os.path.join(backup, name))
+        except OSError:
+            pass
+    return restored, removed
+
+
 class Kiosk:
     def __init__(self):
         self.cfg = load_config()
@@ -1585,6 +1901,10 @@ class Kiosk:
         self.game_last_input = self.game_started
         self.game_seen_core = False
         self.menu_since = None
+        try:
+            write_game_maps(self.cfg, game, [(d.vendor, d.product) for d in self.devices.values() if d.virtual])
+        except Exception as e:      # never stop a game starting over this
+            log("layout: failed for %s: %s" % (game.get("file"), e))
         mister_cmd("load_core %s" % game["path"])
         self.write_status()
 
@@ -2234,6 +2554,23 @@ def main(argv):
             set_config_value(k, "")
         send_control("relearn")
         print("Buttons cleared. Lock the kiosk and press the buttons it asks for.")
+        return
+    if "--layout" in argv:
+        cfg = load_config()
+        for g in scan_games(cfg, use_cache=False):
+            if g.get("mgl"):
+                print("%-40s (MGL: uses the core's own mapping)" % g["label"][:40])
+            elif not g.get("buttons") or not g.get("setname"):
+                print("%-40s (no button list in the .mra, left as is)" % g["label"][:40])
+            else:
+                print("%-40s %s" % (g["label"][:40], describe_plan(plan_layout(cfg, g["buttons"]))))
+        if not flag(cfg, "standard_layout"):
+            print("standard_layout = 0: none of this is applied")
+        return
+    if "--restore-maps" in argv:
+        r, d = restore_maps(load_config())
+        print("restored %d map file%s, removed %d the kiosk created" % (r, "" if r == 1 else "s", d))
+        print("Set standard_layout = 0 in kiosk.ini or the kiosk writes them again at the next game.")
         return
     if "--status" in argv:
         try:

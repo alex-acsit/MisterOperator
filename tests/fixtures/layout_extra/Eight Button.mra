@@ -1,0 +1,2 @@
+<misterromdescription><name>Eight Button</name><setname>eightbtn</setname><rbf>jtx</rbf>
+<buttons names="B1,B2,B3,B4,B5,B6,B7,B8,Start,Coin" default="A,B,X,Y,L,R,Start,Select"/></misterromdescription>

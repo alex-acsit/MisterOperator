@@ -61,7 +61,8 @@ During attract mode, any button or stick movement returns to the game list. Noth
 you press reaches the demo game.
 
 Over SSH: `arcadekiosk.py --lock`, `--unlock`, `--status`, `--scan` (list the games
-found), `--devices` (list controllers), `--relearn` (set the two buttons again).
+found), `--devices` (list controllers), `--relearn` (set the two buttons again), `--layout`
+(each game's button layout), `--restore-maps` (undo the layout).
 
 ## Customising
 
@@ -122,6 +123,20 @@ genre, the list shows that genre's name and Button 2 does nothing; with several,
 cycles through only those. Attract mode and `orientation` combine with it.
 
 ![Locked to one genre](docs/genre_locked.png)
+
+**Standard button layout:** every game uses the same panel buttons, laid out
+`4 5 6` over `1 2 3`. Six-button games use 1–6 in order; 1–3 button games use 1, 2, 3;
+4-button games put game button 1 on panel 4 and buttons 2–4 on panel 1–3. Start and Coin
+are kept, and Pause, Service, Test, Tilt and "Core credits" are left unmapped. Before
+each game starts, the kiosk writes that game's MiSTer mapping
+(`/media/fat/config/inputs/<setname>_input_<vid>_<pid>_v4.map`), taking your encoder's
+buttons from its mapping in the MiSTer menu. `panel_layout = B,A,R,Y,X,L` says which pad
+buttons are panel 1–6 (`panel_start`, `panel_coin` likewise), `layout_4 = 4,1,2,3` etc.
+set the order for each button count, and `drop_buttons` lists the words to unmap.
+`arcadekiosk.py --layout` shows what every game gets. Earlier mappings are backed up to
+`map_backup/`; `--restore-maps` puts them back (then set `standard_layout = 0`). Mapping
+a game by hand in the MiSTer menu while unlocked is overwritten at its next start.
+`.mgl` games and `.mra` files without a `<buttons>` list are left as they are.
 
 **Attract mode:** `attract_idle_s` (seconds before demos start, `0` turns it off),
 `attract_game_s` (seconds per demo), `attract_list` (a file of chosen demo games),
