@@ -265,6 +265,9 @@ DEFAULTS = {
     "genre_buttons": "BTN_THUMB,BTN_EAST,KEY_LEFTALT,KEY_2",
     "genre_back_buttons": "BTN_THUMB2,BTN_NORTH,KEY_SPACE,KEY_3",
     "letter_buttons": "BTN_TOP,BTN_WEST,KEY_LEFTSHIFT,KEY_4",
+    "coin_buttons": "KEY_5,KEY_6,BTN_SELECT,BTN_BASE3",
+    "coin_delay_s": "30",
+    "max_credits": "9",
     "ignore_devices": "",
     "log_inputs": "0",
     "remember_last": "1",
@@ -809,6 +812,7 @@ class LauncherView:
         self.toast = None
         self.toast_until = 0
         self.overlay = None       # persistent message box (setup / loading)
+        self.credits = 0          # coins banked on the list, shown in the header
         self.picker = None        # index into picker_letters while choosing a letter
         self.picker_until = 0
         self._art_cache = {}
@@ -935,8 +939,12 @@ class LauncherView:
 
         # header
         c.text(8, 5, self.cfg["title"][:12], AMBER, BG, scale=2)
-        count = "%d GAME%s" % (len(self.games), "" if len(self.games) == 1 else "S")
-        c.text(c.w - 8 - len(count) * 8, 10, count, DIM, BG)
+        if self.credits:
+            count = "CREDIT%s %d" % ("" if self.credits == 1 else "S", self.credits)
+            c.text(c.w - 8 - len(count) * 8, 10, count, AMBER, BG)
+        else:
+            count = "%d GAME%s" % (len(self.games), "" if len(self.games) == 1 else "S")
+            c.text(c.w - 8 - len(count) * 8, 10, count, DIM, BG)
         c.fill(0, 24, c.w, 2, ACCENT)
 
         # genre selector
@@ -1672,6 +1680,9 @@ class Kiosk:
         self.devices = {}               # path -> PhysicalDevice
         self.ungrabbed = {}             # path -> (first seen, carries menu/operator button)
         self.current_game = None
+        self.coin_queue = []            # coins waiting to go into the game just started
+        self.coin_next = 0
+        self.coin_down = None           # coin being "pressed" right now
         self.own_nodes = set()          # event nodes of our own virtual devices
         self.keys_dev = None            # virtual keyboard used to send F9
         self.fb = None
@@ -1708,6 +1719,7 @@ class Kiosk:
         self.genre_buttons = parse_code_list(self.cfg["genre_buttons"])
         self.genre_back_buttons = parse_code_list(self.cfg["genre_back_buttons"])
         self.letter_buttons = parse_code_list(self.cfg["letter_buttons"])
+        self.coin_buttons = parse_code_list(self.cfg["coin_buttons"])
         self.reload_buttons()
 
     # -- config -------------------------------------------------------------
@@ -1949,6 +1961,8 @@ class Kiosk:
             self.update_setup_overlay()
         if self.state.get("pending_toast"):
             self.view.show_toast(self.state.pop("pending_toast"), 3)
+        self.return_coins()
+        self.view.credits = len(self.state.get("coins", []))
         self.release_virtual_keys()
         self.dir_state.clear()
         self.repeat.clear()
@@ -1956,6 +1970,72 @@ class Kiosk:
         self.mode = S_LAUNCHER
         self.need_redraw = True
         self.write_status()
+
+    # -- coins ------------------------------------------------------------------
+    # Coins put in on the game list (or during a demo) are held, shown on screen,
+    # and inserted into the next game once it has had time to load. They are kept
+    # in state.json so a reboot or kiosk restart doesn't lose them.
+    def bank_coin(self, dev, code):
+        bank = self.state.setdefault("coins", [])
+        if len(bank) >= int(self.cfg["max_credits"]):
+            log("coin: bank full (%d)" % len(bank))
+        else:
+            bank.append([dev.vidpid, code])
+            save_state(self.state)
+            log("coin: banked (%s on %s), %d credit%s" % (code_name(code), dev.vidpid, len(bank),
+                                                        "" if len(bank) == 1 else "s"))
+        if self.view:
+            self.view.credits = len(bank)
+            self.view.show_toast("CREDIT%s %d" % ("" if len(bank) == 1 else "S", len(bank)), 1.5)
+            self.need_redraw = True
+
+    def return_coins(self):
+        """Put coins that never reached the game back in the bank."""
+        left = list(self.coin_queue)
+        if self.coin_down:
+            self.release_coin()
+        if left:
+            log("coin: %d not delivered, kept for the next game" % len(left))
+            self.state["coins"] = [list(c) for c in left] + self.state.get("coins", [])
+            save_state(self.state)
+        self.coin_queue = []
+
+    def coin_device(self, vidpid, code):
+        """The virtual copy of the controller the coin came from, or any that has that button."""
+        devs = list(self.devices.values())
+        for d in devs:
+            if d.virtual and d.vidpid == vidpid and code in d.keys:
+                return d
+        for d in devs:
+            if d.virtual and code in d.keys:
+                return d
+        return None
+
+    def release_coin(self):
+        dev, code = self.coin_down
+        if dev.virtual:
+            dev.virtual.emit(EV_KEY, code, 0, sync=True)
+        self.coin_down = None
+
+    def tick_coins(self, now):
+        if self.mode != S_GAME or not (self.coin_queue or self.coin_down):
+            return
+        if now < self.coin_next:
+            return
+        if self.coin_down:                          # finish the press
+            self.release_coin()
+            self.coin_next = now + 0.35
+            return
+        vidpid, code = self.coin_queue[0]
+        dev = self.coin_device(vidpid, code)
+        self.coin_queue.pop(0)
+        if not dev:
+            log("coin: no controller with %s to insert it; dropped" % code_name(code))
+            return
+        log("coin: inserting (%s), %d more to go" % (code_name(code), len(self.coin_queue)))
+        dev.virtual.emit(EV_KEY, code, 1, sync=True)
+        self.coin_down = (dev, code)
+        self.coin_next = now + 0.15                 # hold it like a real coin switch
 
     def launch(self, game):
         log("launching %s" % game["path"])
@@ -1970,6 +2050,14 @@ class Kiosk:
         self.mode = S_GAME
         self.current_game = game
         self.game_started = time.monotonic()
+        # Banked coins go in once the game has had time to load.
+        self.coin_queue = [tuple(c) for c in self.state.get("coins", [])]
+        if self.coin_queue:
+            self.state["coins"] = []
+            save_state(self.state)
+            self.coin_next = self.game_started + float(self.cfg["coin_delay_s"])
+            log("coin: %d credit%s will go in after %s s" % (
+                len(self.coin_queue), "" if len(self.coin_queue) == 1 else "s", self.cfg["coin_delay_s"]))
         self.game_last_input = self.game_started
         self.game_seen_core = False
         self.menu_since = None
@@ -2116,6 +2204,7 @@ class Kiosk:
         log("operator: %s" % ("LOCKED" if locked else "UNLOCKED"))
         self.release_virtual_keys()
         self.unmute_attract()
+        self.return_coins()
         if locked:
             self.state["pending_toast"] = "LOCKED"
             self.current_game = None
@@ -2223,6 +2312,9 @@ class Kiosk:
 
             if self.mode == S_ATTRACT:
                 # Any button or stick movement ends the demo. Nothing reaches the game.
+                # A coin put in during the demo is banked for the player's game.
+                if t == EV_KEY and v == 1 and c in self.coin_buttons:
+                    self.bank_coin(dev, c)
                 dirn = self._direction_from(dev, t, c, v)
                 if (t == EV_KEY and v == 1) or (dirn and dirn[1]):
                     self.stop_attract()
@@ -2320,6 +2412,9 @@ class Kiosk:
                     self.repeat.pop(key, None)
             return
         if t != EV_KEY or v != 1 or self.setup_step:
+            return
+        if c in self.coin_buttons:
+            self.bank_coin(dev, c)
             return
         if self.view.picker is not None:
             # Any button closes the letter picker, leaving the list on that letter.
@@ -2545,6 +2640,8 @@ class Kiosk:
                     self.current_game = None
                     self.go_menu()
 
+            self.tick_coins(now)
+
             # Nobody playing: quit the game back to the list.
             idle_exit = float(self.cfg["game_idle_exit_s"])
             if (self.mode == S_GAME and idle_exit > 0 and self.state["locked"]
@@ -2569,6 +2666,7 @@ class Kiosk:
                     self.check_fb_mode()
                 idle = float(self.cfg["attract_idle_s"])
                 if (idle > 0 and not self.setup_step and self.state["locked"]
+                        and not self.state.get("coins")
                         and now - self.last_activity >= idle):
                     self.start_attract()
                 if self.need_redraw:

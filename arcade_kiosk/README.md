@@ -113,6 +113,16 @@ from the `<category>` in each `.mra`, and any part matches, so `Vertical` also p
 genre, the list shows that genre's name and Button 2 does nothing; with several, Button 2
 cycles through only those. Attract mode and `orientation` combine with it.
 
+**Coins on the game list:** a coin put in on the list, or during a demo, is held and
+shown as `CREDITS n` in the header. Once the player picks a game, the kiosk waits
+`coin_delay_s` (30 s) for it to load, then presses coin in the game once per credit,
+on the controller the coin came from. Coins put in during a game go straight in as
+normal. If the player quits, or the game fails, before the credits go in, they're kept
+for the next game. Credits survive a reboot, demos don't start while any are waiting, and
+`max_credits` (9) caps them. Set `coin_buttons` to the codes your coin buttons send
+(defaults: `KEY_5`, `KEY_6`, `BTN_SELECT`, `BTN_BASE3`). To find yours, set
+`log_inputs = 1` and drop a coin.
+
 **Letter jump:** Button 4 opens an A-Z picker showing only letters that have games. Move
 the stick to choose; the list follows. Then press any button, or leave it for 6 s.
 Left/right on the list still steps one letter at a time. The buttons are set with
