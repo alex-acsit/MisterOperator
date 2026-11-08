@@ -28,5 +28,6 @@ run test_idle.py base
 run test_nvram.py base nvram_extra
 run test_screen.py base
 run test_layout.py base layout_extra
+run test_buttons.py base
 
 [ $fail = 0 ] && echo "ALL TESTS PASSED" || { echo "SOME TESTS FAILED"; exit 1; }

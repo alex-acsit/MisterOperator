@@ -62,7 +62,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from font8x8 import FONT  # noqa: E402
 
-VERSION = "1.7"
+VERSION = "1.8"
 
 CONFIG_PATH = os.path.join(HERE, "kiosk.ini")
 STATE_PATH = os.path.join(HERE, "state.json")
@@ -241,7 +241,8 @@ DEFAULTS = {
     "short_names": "1",
     "title": "ARCADE",
     "footer_play": "PRESS 1 TO PLAY",
-    "footer_genre": "2:GENRE",
+    "footer_genre": "2/3:GENRE",
+    "footer_letter": "4:A-Z",
     "art_dir": os.path.join(HERE, "art"),
     "menu_button": "",
     "menu_device": "",
@@ -252,7 +253,7 @@ DEFAULTS = {
     "exit_grace_s": "3",
     "lock_on_boot": "1",
     "menu_settle_s": "0",
-    "attract_idle_s": "90",
+    "attract_idle_s": "120",
     "attract_game_s": "60",
     "attract_list": "",
     "attract_vertical": "0",
@@ -261,7 +262,9 @@ DEFAULTS = {
     "fb_width": "320",
     "fb_height": "240",
     "launch_buttons": "BTN_TRIGGER,BTN_SOUTH,BTN_START,KEY_ENTER,KEY_LEFTCTRL,KEY_1",
-    "genre_buttons": "BTN_THUMB,BTN_EAST,KEY_LEFTALT,KEY_SPACE,KEY_2",
+    "genre_buttons": "BTN_THUMB,BTN_EAST,KEY_LEFTALT,KEY_2",
+    "genre_back_buttons": "BTN_THUMB2,BTN_NORTH,KEY_SPACE,KEY_3",
+    "letter_buttons": "BTN_TOP,BTN_WEST,KEY_LEFTSHIFT,KEY_4",
     "ignore_devices": "",
     "log_inputs": "0",
     "remember_last": "1",
@@ -784,10 +787,12 @@ class LauncherView:
         apply_theme(cfg)
         self.portrait = screen_rotation(cfg) != 0
         if self.portrait:
-            # List across the full width, picture and details underneath.
+            # List across the full width, picture and details underneath,
+            # button hints on their own line at the bottom.
+            self.ROWS = 15
             self.LIST_W, self.NAME_CHARS = 232, 27
-            self.PANEL_X, self.PANEL_Y = 6, 228
-            self.INFO_X, self.INFO_Y, self.INFO_CHARS, self.INFO_LINES = 114, 230, 15, 7
+            self.PANEL_X, self.PANEL_Y = 6, 215
+            self.INFO_X, self.INFO_Y, self.INFO_CHARS, self.INFO_LINES = 114, 217, 15, 6
         else:
             # List on the left, picture and details on the right.
             self.LIST_W, self.NAME_CHARS = 204, 24
@@ -804,6 +809,8 @@ class LauncherView:
         self.toast = None
         self.toast_until = 0
         self.overlay = None       # persistent message box (setup / loading)
+        self.picker = None        # index into picker_letters while choosing a letter
+        self.picker_until = 0
         self._art_cache = {}
 
     # selection ------------------------------------------------------------
@@ -845,6 +852,40 @@ class LauncherView:
                 i -= 1
         self.sel = i
         self._fix_top()
+
+    @staticmethod
+    def letter_of(g):
+        ch = g["label"][:1].upper()
+        return ch if "A" <= ch <= "Z" else "#"
+
+    def picker_letters(self):
+        """Letters that at least one game on the list starts with ("#" = digits etc.)."""
+        return sorted({self.letter_of(g) for g in self.games}, key=lambda l: (l != "#", l))
+
+    def open_picker(self):
+        letters = self.picker_letters()
+        if not letters:
+            return
+        cur = self.letter_of(self.current()) if self.current() else letters[0]
+        self.picker = letters.index(cur) if cur in letters else 0
+        self.picker_until = time.monotonic() + 6
+
+    def close_picker(self):
+        self.picker = None
+
+    def picker_move(self, d):
+        letters = self.picker_letters()
+        if self.picker is None or not letters:
+            return
+        self.picker = (self.picker + d) % len(letters)
+        self.picker_until = time.monotonic() + 6
+        target = letters[self.picker]
+        for i, g in enumerate(self.games):          # the list follows the letter
+            if self.letter_of(g) == target:
+                self.sel = i
+                self.top = i                         # put that letter at the top
+                self._fix_top()
+                break
 
     def select_path(self, path):
         for i, g in enumerate(self.games):
@@ -961,15 +1002,44 @@ class LauncherView:
                 c.text(self.INFO_X, y, text, colr, BG)
                 y += 11
 
-        # footer
+        # footer: "press 1 to play" plus button hints (on their own line in TATE)
+        hints = [h for h in ((self.cfg["footer_genre"] if len(self.genres) > 1 else ""),
+                             self.cfg["footer_letter"]) if h.strip()]
+        hint = " ".join(hints)[:(c.w - 16) // 8]
         fy = c.h - 14
-        c.fill(0, fy - 4, c.w, 1, LINE)
-        fg = self.cfg["footer_genre"][:12] if len(self.genres) > 1 else ""
-        room = (c.w - 16 - (len(fg) * 8 + 8 if fg else 0)) // 8
+        if self.portrait:
+            c.fill(0, fy - 16, c.w, 1, LINE)
+            if hint:
+                c.text(8, fy - 12, hint, DIM, BG)
+            room = (c.w - 16) // 8
+        else:
+            c.fill(0, fy - 4, c.w, 1, LINE)
+            if hint:
+                c.text(c.w - 8 - len(hint) * 8, fy, hint, DIM, BG)
+            room = (c.w - 16 - (len(hint) * 8 + 8 if hint else 0)) // 8
         if blink_on:
             c.text(8, fy, self.cfg["footer_play"][:room], AMBER, BG)
-        if fg:
-            c.text(c.w - 8 - len(fg) * 8, fy, fg, DIM, BG)
+
+        # letter picker: big current letter with its neighbours either side
+        if self.picker is not None:
+            letters = self.picker_letters()
+            if letters:
+                self.picker %= len(letters)
+                w, h = min(c.w - 16, 216), 74
+                x, y = (c.w - w) // 2, (c.h - h) // 2
+                c.fill(x, y, w, h, PANEL)
+                c.frame(x, y, w, h, ACCENT, 2)
+                c.text_center(c.w // 2, y + 7, "JUMP TO LETTER", DIM, PANEL)
+                cx = c.w // 2
+                c.fill(cx - 20, y + 20, 40, 40, ACCENT)
+                c.text_center(cx, y + 24, letters[self.picker], SELECT, ACCENT, scale=4)
+                n = len(letters)
+                # Neighbours wrap round; only show as many as there are distinct letters.
+                for off, dx in ((-1, -44), (1, 44), (-2, -78), (2, 78)):
+                    if n >= 2 * abs(off) + 1 or (n == 2 and off == 1):
+                        l = letters[(self.picker + off) % n]
+                        c.text_center(cx + dx, y + 32, l, TEXT if abs(off) == 1 else DIM, PANEL, scale=2)
+                c.text_center(c.w // 2, y + 63, "ANY BUTTON: DONE", DIM, PANEL)
 
         # overlays
         msg = self.overlay
@@ -1636,6 +1706,8 @@ class Kiosk:
 
         self.launch_buttons = parse_code_list(self.cfg["launch_buttons"])
         self.genre_buttons = parse_code_list(self.cfg["genre_buttons"])
+        self.genre_back_buttons = parse_code_list(self.cfg["genre_back_buttons"])
+        self.letter_buttons = parse_code_list(self.cfg["letter_buttons"])
         self.reload_buttons()
 
     # -- config -------------------------------------------------------------
@@ -2249,6 +2321,11 @@ class Kiosk:
             return
         if t != EV_KEY or v != 1 or self.setup_step:
             return
+        if self.view.picker is not None:
+            # Any button closes the letter picker, leaving the list on that letter.
+            self.view.close_picker()
+            self.need_redraw = True
+            return
         if c in self.launch_buttons:
             g = self.view.current()
             if g:
@@ -2256,9 +2333,17 @@ class Kiosk:
         elif c in self.genre_buttons:
             self.view.set_genre(self.view.genre_idx + 1)
             self.need_redraw = True
+        elif c in self.genre_back_buttons:
+            self.view.set_genre(self.view.genre_idx - 1)
+            self.need_redraw = True
+        elif c in self.letter_buttons:
+            self.view.open_picker()
+            self.need_redraw = True
 
     def step(self, axis, d):
-        if axis == "y":
+        if self.view.picker is not None:
+            self.view.picker_move(d)          # any direction moves through the letters
+        elif axis == "y":
             self.view.move(d)
         else:
             self.view.jump_letter(d)
@@ -2475,6 +2560,9 @@ class Kiosk:
                     self.need_redraw = True
                 if self.view and self.view.toast and now > self.view.toast_until:
                     self.view.toast = None
+                    self.need_redraw = True
+                if self.view and self.view.picker is not None and now > self.view.picker_until:
+                    self.view.close_picker()           # left alone: keep the letter
                     self.need_redraw = True
                 if now - self.last_fb_check > 1.0:
                     self.last_fb_check = now

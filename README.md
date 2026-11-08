@@ -9,7 +9,7 @@ MiSTer frontend for retrobar operators: a locked-down, arcade-only kiosk for MiS
 - While locked, players can't reach the MiSTer OSD, settings, console cores or scripts.
 - **Idle games end themselves:** if nobody touches the controls for 5 minutes during a
   game, it quits back to the list (`game_idle_exit_s`).
-- **Attract mode:** after 90 s with no input on the list, demo games play one after
+- **Attract mode:** after 2 minutes with no input on the list, demo games play one after
   another; any button or stick movement goes back to the list.
 
 Built for a 15 kHz CRT (320×240 game list) and USB arcade encoders.
@@ -53,7 +53,8 @@ copied straight onto the card.
 | Stick up / down | Move | game | normal |
 | Stick left / right | Jump to previous / next letter | game | normal |
 | Button 1 or Start | Play | game | normal |
-| Button 2 | Next genre | game | normal |
+| Button 2 / Button 3 | Next / previous genre | game | normal |
+| Button 4 | Jump to a letter (A-Z picker) | game | normal |
 | Player MENU | — | **Quit to game list** | Opens MiSTer OSD |
 | OPERATOR (hold 1.5 s) | Unlock to MiSTer menu | Unlock to MiSTer menu | Lock and return to list |
 
@@ -138,7 +139,13 @@ set the order for each button count, and `drop_buttons` lists the words to unmap
 a game by hand in the MiSTer menu while unlocked is overwritten at its next start.
 `.mgl` games and `.mra` files without a `<buttons>` list are left as they are.
 
-**Attract mode:** `attract_idle_s` (seconds before demos start, `0` turns it off),
+
+**Letter jump:** Button 4 opens an A-Z picker showing only letters that have games. Move
+the stick to choose; the list follows. Then press any button, or leave it for 6 s.
+Left/right on the list still steps one letter at a time. The buttons are set with
+`genre_buttons`, `genre_back_buttons` and `letter_buttons`.
+
+**Attract mode:** `attract_idle_s` (seconds before demos start, default 120; `0` turns it off),
 `attract_game_s` (seconds per demo), `attract_list` (a file of chosen demo games),
 `attract_vertical` and `attract_mute`. Demos move from game to game directly, so the
 stock menu never appears between them.
