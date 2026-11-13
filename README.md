@@ -8,7 +8,7 @@ else on the MiSTer is reachable while the cabinet is locked.
 
 ![The game list on a landscape (YOKO) and a vertical (TATE) monitor](docs/screens.png)
 
-Current version: **2.1**, for 15 kHz CRTs and USB arcade encoders. It also works on HDMI.
+Current version: **2.1.1**, for 15 kHz CRTs and USB arcade encoders. It also works on HDMI.
 
 ## Features
 

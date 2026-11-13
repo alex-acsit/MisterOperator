@@ -9,7 +9,7 @@ Players get a simple game list and one button to get back to it. The operator ge
 hidden button that opens an operator menu in the same look, for servicing. Nothing
 else on the MiSTer is reachable while the cabinet is locked.
 
-Current version: **2.1**, for 15 kHz CRTs and USB arcade encoders. It also works on HDMI.
+Current version: **2.1.1**, for 15 kHz CRTs and USB arcade encoders. It also works on HDMI.
 
 ## Features
 

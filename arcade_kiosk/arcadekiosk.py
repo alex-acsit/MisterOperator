@@ -66,7 +66,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from font8x8 import FONT  # noqa: E402
 
-VERSION = "2.1"
+VERSION = "2.1.1"
 
 CONFIG_PATH = os.path.join(HERE, "kiosk.ini")
 STATE_PATH = os.path.join(HERE, "state.json")
@@ -346,7 +346,8 @@ def set_config_value(key, value, path=CONFIG_PATH):
         m = pat.match(line)
         if m:
             comment = m.group(3) or ""
-            lines[i] = "%s%s%s" % (m.group(1), value, ("   " + comment.strip()) if comment else "")
+            lead = m.group(1) if m.group(1).endswith(" ") else m.group(1) + " "
+            lines[i] = "%s%s%s" % (lead, value, ("   " + comment.strip()) if comment else "")
             break
     else:
         lines.append("%s = %s" % (key, value))
@@ -3639,7 +3640,8 @@ def merge_ini(new_text, old_text):
         k = m.group(2).lower()
         seen.add(k)
         comment = m.group(5) or ""
-        lines[i] = "%s%s%s%s%s" % (m.group(1), m.group(2), m.group(3), old[k],
+        sep = m.group(3) if m.group(3).endswith(" ") else m.group(3) + " "
+        lines[i] = "%s%s%s%s%s" % (m.group(1), m.group(2), sep, old[k],
                                    ("   " + comment.strip()) if comment else "")
     extra = [k for k in order if k not in seen and k not in RETIRED_KEYS]
     if extra:

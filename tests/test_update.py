@@ -127,7 +127,8 @@ rc = K.update_command(["--check"]); sys.stdout = sys.__stdout__
 check(rc == 0 and "Latest: 9.9" in out.getvalue(), "--check shows installed and latest")
 
 # ---- merge_ini on its own
-m = K.merge_ini("[kiosk]\n; comment\na = 1   ; note\nb = 2\n", "a = 5\nzz = 9\nfooter_letter = x\n")
+m = K.merge_ini("[kiosk]\n; comment\na = 1   ; note\nb = 2\nc =\n", "a = 5\nzz = 9\nfooter_letter = x\nc = 3\n")
+check("\nc = 3\n" in m, "empty setting filled in with a space after =")
 check("a = 5   ; note" in m and "b = 2" in m and "zz = 9" in m and "footer_letter" not in m and "; comment" in m,
       "merge_ini keeps values, comments, extras; drops retired keys")
 
