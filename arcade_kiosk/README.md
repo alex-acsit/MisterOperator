@@ -6,10 +6,10 @@ https://github.com/alex-acsit/MisterOperator
 **A locked-down, arcade-only frontend for MiSTer FPGA cabinets, built for retrobar operators.**
 
 Players get a simple game list and one button to get back to it. The operator gets a
-hidden button that unlocks the full MiSTer menu for servicing. Nothing else on the
-MiSTer is reachable while the cabinet is locked.
+hidden button that opens an operator menu in the same look, for servicing. Nothing
+else on the MiSTer is reachable while the cabinet is locked.
 
-Current version: **1.8**, for 15 kHz CRTs and USB arcade encoders. It also works on HDMI.
+Current version: **1.9**, for 15 kHz CRTs and USB arcade encoders. It also works on HDMI.
 
 ## Features
 
@@ -23,7 +23,9 @@ Current version: **1.8**, for 15 kHz CRTs and USB arcade encoders. It also works
 - The same panel layout (buttons 1–6) in every game
 
 **For operators**
-- Hold the **OPERATOR** button to unlock the stock MiSTer menu, and hold it again to lock
+- Hold the **OPERATOR** button for a themed **operator menu**: volume, credits, demo and
+  idle timings, NVRAM, screen and theme, play counts, a game's DIP switches, the log and
+  reboot. Hold it again to lock. The stock MiSTer menu is still one item away.
 - Players can't reach the MiSTer menu, settings, console cores or scripts
 - **Attract mode:** after 2 minutes on the list, demo games play until someone
   touches the controls
@@ -64,10 +66,36 @@ Settings live in `/media/fat/arcade_kiosk/kiosk.ini`. Each one is explained in t
 | Button 4 | Letter jump (A–Z picker) | game | normal |
 | Coin | Add a credit | coin | coin |
 | Player MENU | — | **Quit to the list** | Opens the MiSTer menu |
-| OPERATOR (hold 1.5 s) | Unlock | Unlock | Lock and return to the list |
+| OPERATOR (hold 1.5 s) | Operator menu | Quit to the operator menu | Back to the operator menu |
 
 During attract mode, any button or stick movement returns to the list. A coin also
 counts as a credit, and nothing pressed reaches the demo game.
+
+### Operator menu
+
+Hold OPERATOR on the list, or during a game, to open it. Move with the stick; left/right
+changes a setting, and Button 1 picks an item. Button 2 or MENU goes back, and on the
+main page that locks the cabinet, as does holding OPERATOR again. Changes are saved to
+`kiosk.ini` straight away. Left alone for 5 minutes, it locks itself.
+
+| Item | Does |
+|---|---|
+| Back to games | Lock and return to the list |
+| Volume | 0–7 and mute (the MiSTer's master volume) |
+| Credits | Add or remove free credits; Button 1 twice clears them |
+| Demo after / Demo length | Attract mode timings |
+| Idle game quit / Coin delay | The in-game timers |
+| Save NVRAM | `once`, `always` or `off` |
+| Screen / Theme | YOKO or TATE; green, phosphor or classic |
+| Game settings | Runs the last game played unlocked, so MENU opens the MiSTer menu for its DIP switches and core options. Hold OPERATOR to come back |
+| Play counts | How often each game has been played |
+| Reset NVRAM | Wipe one game's saved settings and high scores (asks first) |
+| Rescan games / View log | Pick up new `.mra` files; read the kiosk log |
+| MiSTer menu | The stock MiSTer menu, for anything else. Hold OPERATOR to come back |
+| Reboot | Restart the MiSTer (asks first) |
+
+`operator_menu = 0` brings back the old behaviour, where OPERATOR goes straight to the
+stock menu.
 
 ## Settings
 
@@ -86,6 +114,7 @@ The most-used `kiosk.ini` settings:
 | `coin_buttons` | `KEY_5, KEY_6, BTN_SELECT, BTN_BASE3` | Codes your coin buttons send |
 | `coin_delay_s` | `30` | Seconds after launch before held credits go in |
 | `operator_hold_ms` | `1500` | Hold time for OPERATOR (`0` = single press) |
+| `operator_menu` | `1` | Themed operator menu (`0` = straight to the stock menu) |
 | `save_nvram` | `once` | `always` keeps high scores (brief menu flash on quit); `off` never saves |
 | `standard_layout` | `1` | Same panel buttons 1–6 for every game (`0` = leave mappings alone) |
 
@@ -161,7 +190,8 @@ Over SSH, `python3 /media/fat/arcade_kiosk/arcadekiosk.py` accepts:
 
 | Option | Does |
 |---|---|
-| `--lock` / `--unlock` | Lock or unlock the running kiosk |
+| `--lock` / `--unlock` | Lock, or open the operator menu |
+| `--stock` | Go to the stock MiSTer menu |
 | `--status` | What the kiosk is doing, and its controllers |
 | `--relearn` | Set the MENU and OPERATOR buttons again |
 | `--scan` / `--genres` | List the games found / the genre names they use |
@@ -192,7 +222,7 @@ Most of this was built and tested off-hardware, so check these on the cabinet:
 2. Stick and Buttons 1–4 work on the list.
 3. A game starts, plays with all buttons, and one MENU press returns to the list.
 4. A coin put in on the list shows as a credit and goes into the next game after 30 s.
-5. Holding OPERATOR unlocks to the stock menu; holding it again locks.
+5. Holding OPERATOR opens the operator menu; holding it again locks.
 6. In a locked game, no button or combination opens the MiSTer menu.
 
 ## Troubleshooting
@@ -212,7 +242,7 @@ Everything is logged to `/tmp/arcadekiosk.log`.
   to `coin_buttons`.
 - **Controls stop working mid-game:** `can't take ... (in use by the MiSTer)` in the log
   means a controller reconnected during a game. The kiosk returns to the list to recover,
-  and `--unlock` over SSH always reaches the stock menu.
+  and `--stock` over SSH always reaches the stock menu.
 - **A controller is ignored:** run `--devices`.
 - **Turn the kiosk off:** unlock, then remove the `# Arcade Kiosk` lines from
   `/media/fat/linux/user-startup.sh` and reboot.
@@ -230,7 +260,7 @@ Everything is logged to `/tmp/arcadekiosk.log`.
 
 The tests fake the MiSTer's command pipe, core name, framebuffer and input devices. They
 check game scanning and filters, button setup, launching and quitting, lock/unlock,
-attract mode, coins, NVRAM saving, screen rotation and button layouts.
+attract mode, coins, NVRAM saving, screen rotation, button layouts and the operator menu.
 
 ## Licence
 

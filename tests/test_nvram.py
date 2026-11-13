@@ -8,6 +8,7 @@ for k, v in (("arcade_dir", T + "/_Arcade"), ("menu_button", "BTN_BASE4"), ("ope
              ("exit_grace_s", "0"), ("nvram_save_s", "0.05"), ("operator_hold_ms", "0"),
              ("nvram_dir", T + "/nvram")):
     K.set_config_value(k, v)
+K.set_config_value("operator_menu", "0")   # these tests cover the direct-to-stock-menu unlock
 fails = 0
 def check(c, m):
     global fails; print(("PASS " if c else "FAIL ") + m); fails += 0 if c else 1

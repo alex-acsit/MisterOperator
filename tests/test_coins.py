@@ -6,6 +6,7 @@ K.LOG_PATH = T + "/log.txt"; K.STATUS_PATH = T + "/status.json"; K.CTL_PATH = T 
 for k, v in (("arcade_dir", T + "/_Arcade"), ("menu_button", "BTN_BASE4"), ("operator_button", "BTN_BASE5"), ("exit_grace_s", "0"),
              ("coin_delay_s", "0.3"), ("max_credits", "3"), ("operator_hold_ms", "0")):
     K.set_config_value(k, v)
+K.set_config_value("operator_menu", "0")   # these tests cover the direct-to-stock-menu unlock
 fails = 0
 def check(c, m):
     global fails; print(("PASS " if c else "FAIL ") + m); fails += 0 if c else 1

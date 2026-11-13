@@ -5,6 +5,7 @@ T = sys.argv[2]
 K.CONFIG_PATH = T + "/kiosk/kiosk.ini"; K.STATE_PATH = T + "/state.json"; K.CACHE_PATH = T + "/cache.json"
 K.LOG_PATH = T + "/log.txt"; K.STATUS_PATH = T + "/status.json"; K.CTL_PATH = T + "/ctl"
 K.set_config_value("arcade_dir", T + "/_Arcade")
+K.set_config_value("operator_menu", "0")   # these tests cover the direct-to-stock-menu unlock
 K.set_config_value("menu_settle_s", "0.1")
 K.set_config_value("exit_grace_s", "0.3")
 K.set_config_value("operator_hold_ms", "200")

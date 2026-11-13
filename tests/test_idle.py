@@ -4,6 +4,7 @@ T = sys.argv[2]
 K.CONFIG_PATH = T + "/kiosk/kiosk.ini"; K.STATE_PATH = T + "/state.json"; K.CACHE_PATH = T + "/cache.json"
 K.LOG_PATH = T + "/log.txt"; K.STATUS_PATH = T + "/status.json"; K.CTL_PATH = T + "/ctl"
 K.set_config_value("arcade_dir", T + "/_Arcade")
+K.set_config_value("operator_menu", "0")   # these tests cover the direct-to-stock-menu unlock
 for k, v in (("menu_button", "BTN_BASE4"), ("operator_button", "BTN_BASE5"), ("exit_grace_s", "0")):
     K.set_config_value(k, v)
 fails = 0

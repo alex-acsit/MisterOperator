@@ -63,7 +63,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from font8x8 import FONT  # noqa: E402
 
-VERSION = "1.8"
+VERSION = "1.9"
 
 CONFIG_PATH = os.path.join(HERE, "kiosk.ini")
 STATE_PATH = os.path.join(HERE, "state.json")
@@ -77,6 +77,7 @@ MISTER_CMD = "/dev/MiSTer_cmd"
 CORENAME_PATH = "/tmp/CORENAME"
 FB_PARAM_PATH = "/sys/module/MiSTer_fb/parameters/mode"
 MENU_RBF = "/media/fat/menu.rbf"
+VOLUME_PATH = "/media/fat/config/Volume.dat"
 VIRTUAL_PHYS = "arcadekiosk/"
 
 # ---------------------------------------------------------------------------
@@ -250,6 +251,8 @@ DEFAULTS = {
     "operator_button": "",
     "operator_device": "",
     "operator_hold_ms": "1500",
+    "operator_menu": "1",
+    "operator_timeout_s": "300",
     "menu_hold_ms": "0",
     "exit_grace_s": "3",
     "lock_on_boot": "1",
@@ -1070,6 +1073,354 @@ class LauncherView:
                 c.text_center(c.w // 2, y + 9 + i * 12, l[:(w - 16) // 8], WHITE, PANEL)
 
 
+class OperatorView:
+    """The operator menu, drawn in the kiosk's own theme.
+
+    Opened by holding the OPERATOR button. Settings are written straight to
+    kiosk.ini. The stock MiSTer menu is still reachable as one of the items,
+    for the rare jobs only it can do (DIP switches, core options)."""
+
+    ROW_H = 11
+    LIST_Y = 34
+
+    def __init__(self, kiosk):
+        self.k = kiosk
+        self.page = "main"
+        self.sel = 0
+        self.top = 0
+        self.confirm = None          # item waiting for a second press
+        self.toast = None
+        self.toast_until = 0
+        self.overlay = None
+        self.credits = 0
+        self.lines = []              # rows of the current sub-page
+        self.volume = read_volume()
+
+    # -- helpers ------------------------------------------------------------------
+    @property
+    def cfg(self):
+        return self.k.cfg
+
+    def portrait(self):
+        return screen_rotation(self.cfg) != 0
+
+    def rows(self, c_h):
+        return (c_h - self.LIST_Y - 30) // self.ROW_H
+
+    def show_toast(self, text, seconds=2.0):
+        self.toast = text
+        self.toast_until = time.monotonic() + seconds
+
+    def set(self, key, value):
+        value = str(value)
+        self.cfg[key] = value
+        try:
+            set_config_value(key, value)
+        except OSError as e:
+            log("operator menu: could not save %s: %s" % (key, e))
+            self.show_toast("COULD NOT SAVE")
+        log("operator menu: %s = %s" % (key, value))
+
+    def cycle(self, key, options, d, fmt=str):
+        cur = self.cfg.get(key, "").strip().lower()
+        keys = [str(o).lower() for o in options]
+        i = keys.index(cur) if cur in keys else -1
+        if i < 0:   # a value set by hand in kiosk.ini: step from the nearest one
+            try:
+                n = float(cur)
+                i = min(range(len(options)), key=lambda j: abs(float(options[j]) - n))
+            except (ValueError, TypeError):
+                i = 0
+        self.set(key, options[(i + d) % len(options)])
+
+    # -- the main page ------------------------------------------------------------
+    def items(self):
+        k = self.k
+        dur = lambda key, off="OFF": fmt_seconds(self.cfg.get(key, "0"), off)
+        last = k.last_game()
+        out = [
+            ("BACK TO GAMES", lambda: "LOCK", None, k.operator_lock),
+            ("VOLUME", self.volume_text, self.change_volume, None),
+            ("CREDITS", lambda: str(self.credits), self.change_credits, self.clear_credits),
+            ("DEMO AFTER", lambda: dur("attract_idle_s"),
+             lambda d: self.cycle("attract_idle_s", [0, 30, 60, 120, 180, 300, 600], d), None),
+            ("DEMO LENGTH", lambda: dur("attract_game_s"),
+             lambda d: self.cycle("attract_game_s", [30, 45, 60, 90, 120, 180], d), None),
+            ("IDLE GAME QUIT", lambda: dur("game_idle_exit_s", "NEVER"),
+             lambda d: self.cycle("game_idle_exit_s", [0, 120, 180, 300, 600, 900], d), None),
+            ("COIN DELAY", lambda: dur("coin_delay_s"),
+             lambda d: self.cycle("coin_delay_s", [5, 10, 15, 20, 25, 30, 40, 45, 60], d), None),
+            ("SAVE NVRAM", lambda: k.nvram_mode().upper(),
+             lambda d: self.cycle("save_nvram", ["once", "always", "off"], d), None),
+            ("SCREEN", self.screen_text, self.change_screen, None),
+            ("THEME", lambda: (self.cfg.get("theme") or "green").upper(), self.change_theme, None),
+            ("GAME SETTINGS", lambda: (last["label"] if last else "NONE"), None,
+             (lambda: k.operator_game_settings(last)) if last else None),
+            ("PLAY COUNTS", lambda: ">", None, lambda: self.open_page("plays")),
+            ("RESET NVRAM", lambda: ">", None, lambda: self.open_page("nvram")),
+            ("RESCAN GAMES", lambda: "", None, self.rescan),
+            ("VIEW LOG", lambda: ">", None, lambda: self.open_page("log")),
+            ("MISTER MENU", lambda: ">", None, k.operator_stock_menu),
+            ("REBOOT", lambda: "", None, k.operator_reboot),
+        ]
+        return out
+
+    def volume_text(self):
+        level, muted = self.volume
+        if level is None:
+            return "?"
+        return "MUTE" if muted else "%d" % level
+
+    def change_volume(self, d):
+        level, muted = self.volume
+        if level is None:
+            level, muted = 7, False
+        if muted:
+            if d > 0:
+                muted = False
+                mister_cmd("volume unmute")
+        elif d < 0 and level == 0:
+            muted = True
+            mister_cmd("volume mute")
+        else:
+            level = max(0, min(7, level + d))
+            mister_cmd("volume %d" % level)
+        self.volume = (level, muted)
+
+    def change_credits(self, d):
+        self.k.adjust_credits(d)
+        self.credits = len(self.k.state.get("coins", []))
+
+    def clear_credits(self):
+        self.k.adjust_credits(-len(self.k.state.get("coins", [])))
+        self.credits = 0
+        self.show_toast("CREDITS CLEARED")
+
+    def screen_text(self):
+        return {0: "YOKO", 90: "TATE CW", 270: "TATE CCW"}[screen_rotation(self.cfg)]
+
+    def change_screen(self, d):
+        self.cycle("screen", ["yoko", "tate_cw", "tate_ccw"], d)
+        self.k.make_canvases()
+        self.top = 0
+
+    def change_theme(self, d):
+        self.cycle("theme", list(THEMES), d)
+        apply_theme(self.cfg)
+
+    def rescan(self):
+        n = self.k.rescan_games()
+        self.show_toast("%d GAMES" % n)
+
+    # -- sub-pages ----------------------------------------------------------------
+    def open_page(self, page):
+        self.page, self.sel, self.top, self.confirm = page, 0, 0, None
+        k = self.k
+        if page == "plays":
+            plays = k.state.get("plays", {})
+            names = {g["path"]: g["label"] for g in k.all_games()}
+            rows = sorted(((n, names.get(p, os.path.basename(p)[:-4])) for p, n in plays.items()),
+                          key=lambda r: (-r[0], r[1].lower()))
+            self.lines = [("%4d  %s" % (n, name), None) for n, name in rows] or [("NO GAMES PLAYED YET", None)]
+        elif page == "nvram":
+            self.lines = []
+            for g in k.all_games():
+                if g.get("nvram") and os.path.exists(k.nvram_file(g)):
+                    self.lines.append((g["label"], g))
+            if not self.lines:
+                self.lines = [("NO SAVED NVRAM", None)]
+        elif page == "log":
+            try:
+                with open(LOG_PATH, errors="replace") as f:
+                    tail = f.readlines()[-200:]
+            except OSError:
+                tail = []
+            self.lines = [(l.rstrip("\n"), None) for l in tail] or [("LOG IS EMPTY", None)]
+            self.sel = len(self.lines) - 1
+        self.k.need_redraw = True
+
+    def back(self):
+        if self.confirm is not None:
+            self.confirm = None
+        elif self.page != "main":
+            self.page, self.sel, self.top = "main", 0, 0
+        else:
+            self.k.operator_lock()
+            return
+        self.k.need_redraw = True
+
+    # -- input --------------------------------------------------------------------
+    def count(self):
+        return len(self.items()) if self.page == "main" else len(self.lines)
+
+    def move(self, axis, d):
+        if axis == "x":
+            if self.page == "main":
+                label, value, change, action = self.items()[self.sel]
+                if change:
+                    change(d)
+                    self.confirm = None
+            else:                                   # page through long lists
+                self.sel = max(0, min(self.count() - 1, self.sel + d * 10))
+        else:
+            self.sel = max(0, min(self.count() - 1, self.sel + d))
+            self.confirm = None
+        self.k.need_redraw = True
+
+    def press(self):
+        """Button 1."""
+        if self.page == "main":
+            label, value, change, action = self.items()[self.sel]
+            if action is None and change:
+                change(1)
+            elif action:
+                if label in ("REBOOT", "RESET NVRAM") or label == "CREDITS":
+                    if label == "CREDITS" and self.credits == 0:
+                        return
+                    if self.confirm != label:
+                        self.confirm = label
+                        self.k.need_redraw = True
+                        return
+                self.confirm = None
+                action()
+        elif self.page == "nvram":
+            text, g = self.lines[self.sel]
+            if g is None:
+                return
+            if self.confirm != g["path"]:
+                self.confirm = g["path"]
+            else:
+                self.confirm = None
+                self.k.reset_nvram(g)
+                self.open_page("nvram")
+                self.show_toast("NVRAM RESET")
+        self.k.need_redraw = True
+
+    # -- drawing ------------------------------------------------------------------
+    def draw(self, c, blink_on=True):
+        c.fill(0, 0, c.w, c.h, BG)
+        title = {"main": "OPERATOR", "plays": "PLAYS", "nvram": "NVRAM", "log": "LOG"}[self.page]
+        c.text(8, 5, title, AMBER, BG, scale=2)
+        tag = "UNLOCKED"
+        c.text(c.w - 8 - len(tag) * 8, 10, tag, ACCENT, BG)
+        c.fill(0, 24, c.w, 2, ACCENT)
+
+        rows = self.rows(c.h)
+        n = self.count()
+        if self.sel < self.top:
+            self.top = self.sel
+        elif self.sel >= self.top + rows:
+            self.top = self.sel - rows + 1
+        self.top = max(0, min(self.top, max(0, n - rows)))
+        chars = (c.w - 16) // 8
+
+        if self.page == "main":
+            items = self.items()
+            for r in range(rows):
+                i = self.top + r
+                if i >= n:
+                    break
+                label, value, change, action = items[i]
+                y = self.LIST_Y + r * self.ROW_H
+                selected = i == self.sel
+                fg, bg = (SELECT, ACCENT) if selected else (TEXT, BG)
+                if selected:
+                    c.fill(4, y - 1, c.w - 12, self.ROW_H, ACCENT)
+                val = value() if value else ""
+                if selected and self.confirm == label:
+                    val = "PRESS 1 AGAIN"
+                elif selected and change and val:
+                    val = "< %s >" % val
+                room = chars - len(label) - 1
+                if len(val) > room:
+                    val = val[:max(0, room - 1)] + "~"
+                c.text(8, y + 1, label, fg, bg)
+                vx = c.w - 10 - len(val) * 8
+                c.text(vx, y + 1, val, fg if selected else AMBER, bg)
+                if label == "VOLUME" and self.volume[0] is not None and not self.volume[1] \
+                        and not (selected and self.confirm == label):
+                    # seven steps, filled up to the current level
+                    bx = vx - 6 - 7 * 5                 # just left of the number
+                    for i in range(7):
+                        on = i < self.volume[0]
+                        colr = (fg if selected else CYAN) if on else (bg if selected else LINE)
+                        c.fill(bx + i * 5, y + 1, 4, 7, colr)
+                        if not on:
+                            c.frame(bx + i * 5, y + 1, 4, 7, fg if selected else LINE)
+        else:
+            for r in range(rows):
+                i = self.top + r
+                if i >= n:
+                    break
+                text, ref = self.lines[i]
+                y = self.LIST_Y + r * self.ROW_H
+                selected = i == self.sel and self.page == "nvram" and ref is not None
+                if self.page == "nvram" and i == self.sel and ref is not None and self.confirm == ref["path"]:
+                    text = "PRESS 1 AGAIN TO RESET"
+                if selected:
+                    c.fill(4, y - 1, c.w - 12, self.ROW_H, ACCENT)
+                    c.text(8, y + 1, text, SELECT, ACCENT, max_chars=chars)
+                else:
+                    colr = DIM if self.page == "log" and i != self.sel else TEXT
+                    c.text(8, y + 1, text, colr, BG, max_chars=chars)
+
+        # scroll bar
+        sb_h = rows * self.ROW_H
+        if n > rows:
+            c.fill(c.w - 5, self.LIST_Y - 1, 2, sb_h, LINE)
+            th = max(8, sb_h * rows // n)
+            ty = (sb_h - th) * self.top // (n - rows)
+            c.fill(c.w - 5, self.LIST_Y - 1 + ty, 2, th, CYAN)
+
+        # footer
+        fy = c.h - 14
+        c.fill(0, fy - 16, c.w, 1, LINE)
+        if self.page == "main":
+            hint1, hint2 = "1:SELECT  </>:CHANGE", "2:BACK  HOLD OP:LOCK"
+        elif self.page == "nvram":
+            hint1, hint2 = "1:RESET THIS GAME", "2:BACK"
+        else:
+            hint1, hint2 = "UP/DOWN:SCROLL", "2:BACK"
+        c.text(8, fy - 12, hint1[:chars], DIM, BG)
+        c.text(8, fy, hint2[:chars], DIM, BG)
+
+        msg = self.overlay
+        if not msg and self.toast and time.monotonic() < self.toast_until:
+            msg = self.toast
+        if msg:
+            lines = msg.split("\n")
+            w = min(c.w - 16, max(len(l) for l in lines) * 8 + 24)
+            h = len(lines) * 12 + 16
+            x, y = (c.w - w) // 2, (c.h - h) // 2
+            c.fill(x, y, w, h, PANEL)
+            c.frame(x, y, w, h, ACCENT, 2)
+            for i, l in enumerate(lines):
+                c.text_center(c.w // 2, y + 9 + i * 12, l[:(w - 16) // 8], WHITE, PANEL)
+
+
+def fmt_seconds(value, off="OFF"):
+    try:
+        s = int(float(value))
+    except (TypeError, ValueError):
+        return str(value)
+    if s <= 0:
+        return off
+    if s % 60 == 0:
+        return "%d MIN" % (s // 60)
+    return "%d S" % s
+
+
+def read_volume():
+    """(level 0-7, muted) from the MiSTer's saved volume, or (None, False)."""
+    try:
+        with open(VOLUME_PATH, "rb") as f:
+            b = f.read(1)
+        v = b[0]
+        return 7 - (v & 7), bool(v & 0x10)
+    except (OSError, IndexError):
+        return None, False
+
+
 # ---------------------------------------------------------------------------
 # Framebuffer
 # ---------------------------------------------------------------------------
@@ -1375,6 +1726,7 @@ def set_tty_mode(mode):
 
 S_WAIT, S_LAUNCHER, S_GAME, S_RETURNING, S_UNLOCKED = "wait", "launcher", "game", "returning", "unlocked"
 S_ATTRACT = "attract"
+S_OPERATOR = "operator"
 
 
 # ---------------------------------------------------------------------------
@@ -1686,6 +2038,8 @@ class Kiosk:
         self.devices = {}               # path -> PhysicalDevice
         self.ungrabbed = {}             # path -> (first seen, carries menu/operator button)
         self.current_game = None
+        self.opview = None              # operator menu, while it's open
+        self.op_activity = 0
         self.coin_queue = []            # coins waiting to go into the game just started
         self.coin_next = 0
         self.coin_down = None           # coin being "pressed" right now
@@ -1951,8 +2305,9 @@ class Kiosk:
     # -- modes ----------------------------------------------------------------
     def enter_launcher(self):
         log("entering launcher")
-        if not self.activate_framebuffer():
+        if not self.fb and not self.activate_framebuffer():
             return
+        self.opview = None
         self.scan_devices()          # grabs succeed now the MiSTer has let go
         games = scan_games(self.cfg)
         log("%d games" % len(games))
@@ -2048,6 +2403,8 @@ class Kiosk:
         self.view.overlay = "LOADING\n" + game["label"][:30]
         self.draw()
         self.state["last"] = game["path"]
+        plays = self.state.setdefault("plays", {})
+        plays[game["path"]] = plays.get(game["path"], 0) + 1
         save_state(self.state)
         self.suppress = {(d.path, k) for d in self.devices.values() for k in d.pressed}
         # Keep the LOADING screen up (no console flash) until the core takes over.
@@ -2202,6 +2559,138 @@ class Kiosk:
         self.go_menu()
         self.write_status()
 
+    # -- operator menu ----------------------------------------------------------
+    def open_operator(self):
+        """Show the operator menu, from wherever the kiosk is."""
+        if self.mode in (S_LAUNCHER, S_OPERATOR) and self.fb:
+            self.enter_operator()
+            return
+        if self.mode == S_GAME:
+            self.save_nvram()
+        self.unmute_attract()
+        self.current_game = None
+        self.go_menu()                          # poll_core opens it once the menu core is up
+
+    def enter_operator(self):
+        log("entering operator menu")
+        if not self.fb and not self.activate_framebuffer():
+            return
+        self.scan_devices()
+        if self.view is None:
+            self.rescan_games()
+        self.opview = OperatorView(self)
+        self.opview.credits = len(self.state.get("coins", []))
+        self.release_virtual_keys()
+        self.dir_state.clear()
+        self.repeat.clear()
+        self.op_activity = time.monotonic()
+        self.mode = S_OPERATOR
+        self.need_redraw = True
+        self.write_status()
+
+    def all_games(self):
+        return self.view.all_games if self.view else scan_games(self.cfg)
+
+    def last_game(self):
+        last = self.state.get("last")
+        for g in self.all_games():
+            if g["path"] == last:
+                return g
+        return None
+
+    def rescan_games(self):
+        games = scan_games(self.cfg, use_cache=False)
+        keep = self.view
+        self.view = LauncherView(self.cfg, games)
+        if keep and keep.current():
+            self.view.select_path(keep.current()["path"])
+        log("rescan: %d games" % len(games))
+        return len(games)
+
+    def adjust_credits(self, d):
+        bank = self.state.setdefault("coins", [])
+        if d > 0:
+            codes = sorted(self.coin_buttons)
+            have = [c for c in codes if any(c in x.keys for x in self.devices.values())]
+            code = (have or codes or [KEY_NAMES["KEY_5"]])[0]
+            for _ in range(d):
+                if len(bank) < int(self.cfg["max_credits"]):
+                    bank.append(["", code])       # free credit: any controller with that button
+        else:
+            del bank[max(0, len(bank) + d):]
+        save_state(self.state)
+        log("operator menu: credits now %d" % len(bank))
+
+    def reset_nvram(self, g):
+        try:
+            os.remove(self.nvram_file(g))
+        except OSError as e:
+            log("nvram reset failed for %s: %s" % (g["label"], e))
+        good = self.state.get("nvram_good", [])
+        if g["path"] in good:
+            good.remove(g["path"])
+        save_state(self.state)
+        log("nvram reset: %s" % g["label"])
+
+    def operator_lock(self):
+        self.set_locked(True)
+
+    def operator_game_settings(self, g):
+        """Run a game unlocked, so MENU opens the MiSTer menu for its DIP switches
+        and options. Holding OPERATOR comes back to the operator menu."""
+        log("operator menu: game settings for %s" % g["label"])
+        self.release_framebuffer()
+        self.opview = None
+        self.current_game = g
+        self.mode = S_UNLOCKED
+        mister_cmd("load_core %s" % g["path"])
+        self.write_status()
+
+    def operator_stock_menu(self):
+        log("operator menu: stock MiSTer menu")
+        if self.mode == S_GAME:
+            self.save_nvram()
+        self.state["locked"] = False
+        save_state(self.state)
+        self.release_framebuffer()
+        self.opview = None
+        self.current_game = None
+        self.mode = S_UNLOCKED
+        mister_cmd("load_core %s" % MENU_RBF)
+        self.write_status()
+
+    def operator_reboot(self):
+        log("operator menu: reboot")
+        if self.opview:
+            self.opview.overlay = "REBOOTING"
+            self.draw()
+        os.system("sync; reboot")
+
+    def operator_input(self, dev, t, c, v, now):
+        dirn = self._direction_from(dev, t, c, v)
+        if (t == EV_KEY and v == 1) or (dirn and dirn[1]):
+            self.op_activity = now
+        if dirn:
+            axis, d = dirn
+            key = (dev.path, axis)
+            if self.dir_state.get(key, 0) != d:
+                self.dir_state[key] = d
+                if d:
+                    self.step(axis, d)
+                    self.repeat[key] = now + 0.35
+                    self.repeat_count[key] = 0
+                else:
+                    self.repeat.pop(key, None)
+            return
+        if t != EV_KEY or v != 1 or not self.opview:
+            return
+        if c in self.launch_buttons:
+            self.opview.press()
+        elif (c in self.genre_buttons or c in self.genre_back_buttons
+              or self.is_menu_btn(dev, c)):
+            self.opview.back()
+        self.need_redraw = True
+
     def set_locked(self, locked):
         if locked == self.state["locked"]:
             return
@@ -2214,10 +2703,14 @@ class Kiosk:
         if locked:
             self.state["pending_toast"] = "LOCKED"
             self.current_game = None
-            self.go_menu()
+            if self.mode == S_OPERATOR and self.fb:
+                self.enter_launcher()            # already on the kiosk screen
+            else:
+                self.go_menu()
+        elif flag(self.cfg, "operator_menu"):
+            self.open_operator()
         else:
-            # Always land on the stock MiSTer menu, whether the list, a game or a
-            # demo was showing.
+            # Old behaviour: straight to the stock MiSTer menu.
             if self.mode == S_LAUNCHER:
                 self.release_framebuffer()
             elif self.mode == S_GAME:
@@ -2303,6 +2796,9 @@ class Kiosk:
                     log("operator button down (%s, mode %s); hold %d ms to %s" % (
                         dev.vidpid, self.mode, int(self.cfg["operator_hold_ms"]),
                         "unlock" if self.state["locked"] else "lock"))
+                    if self.mode == S_OPERATOR and self.opview and int(self.cfg["operator_hold_ms"]) > 0:
+                        self.opview.show_toast("KEEP HOLDING\nTO LOCK", 5)
+                        self.need_redraw = True
                     if self.mode == S_LAUNCHER and self.view and int(self.cfg["operator_hold_ms"]) > 0:
                         self.view.show_toast("KEEP HOLDING\nTO UNLOCK", 5)
                         self.need_redraw = True
@@ -2328,6 +2824,10 @@ class Kiosk:
 
             if self.mode == S_LAUNCHER:
                 self.launcher_input(dev, t, c, v, now)
+                continue
+
+            if self.mode == S_OPERATOR:
+                self.operator_input(dev, t, c, v, now)
                 continue
 
             if self.mode == S_GAME and t == EV_KEY and self.is_menu_btn(dev, c) and self.state["locked"]:
@@ -2442,6 +2942,11 @@ class Kiosk:
             self.need_redraw = True
 
     def step(self, axis, d):
+        if self.mode == S_OPERATOR:
+            if self.opview:
+                self.opview.move(axis, d)
+            self.need_redraw = True
+            return
         if self.view.picker is not None:
             self.view.picker_move(d)          # any direction moves through the letters
         elif axis == "y":
@@ -2464,13 +2969,14 @@ class Kiosk:
 
     # -- drawing --------------------------------------------------------------
     def draw(self):
-        if not (self.fb and self.canvas and self.view):
+        view = self.opview if getattr(self, "mode", None) == S_OPERATOR else self.view
+        if not (self.fb and self.canvas and view):
             return
         if getattr(self, "lcanvas", None):
-            self.view.draw(self.lcanvas, self.blink_on)
+            view.draw(self.lcanvas, self.blink_on)
             rotate_canvas(self.lcanvas, self.canvas, self.rotation)
         else:
-            self.view.draw(self.canvas, self.blink_on)
+            view.draw(self.canvas, self.blink_on)
         self.fb.present(self.canvas)
         self.need_redraw = False
 
@@ -2500,6 +3006,10 @@ class Kiosk:
             self.set_locked(True)
         elif cmd == "unlock":
             self.set_locked(False)
+        elif cmd == "stock":
+            self.release_virtual_keys()
+            self.return_coins()
+            self.operator_stock_menu()
         elif cmd == "relearn":
             self.cfg = load_config()
             self.reload_buttons()
@@ -2523,10 +3033,19 @@ class Kiosk:
         settle = float(self.cfg["menu_settle_s"])
 
         if not locked:
-            if self.mode != S_UNLOCKED:
-                if self.mode == S_LAUNCHER:
-                    self.release_framebuffer()
-                self.mode = S_UNLOCKED
+            if not flag(self.cfg, "operator_menu"):
+                if self.mode != S_UNLOCKED:
+                    if self.mode == S_LAUNCHER:
+                        self.release_framebuffer()
+                    self.mode = S_UNLOCKED
+            elif self.mode in (S_WAIT, S_RETURNING):
+                # Unlocked: once the menu core is back, show the operator menu.
+                if is_menu and (self.await_stamp is None or core_stamp() != self.await_stamp
+                                or now - self.return_at > 10):
+                    self.await_stamp = None
+                    self.enter_operator()
+                elif name and not is_menu and self.mode == S_WAIT:
+                    self.go_menu()
             return
 
         if self.mode == S_GAME:
@@ -2584,7 +3103,9 @@ class Kiosk:
                 time.sleep(0.2)
             self.unmute_attract()
         self.scan_devices()
-        if not self.state["locked"]:
+        if not self.state["locked"] and flag(self.cfg, "operator_menu"):
+            pass                                    # poll_core opens the operator menu
+        elif not self.state["locked"]:
             self.mode = S_UNLOCKED
             # Grab the controllers once (they are free while the terminal screen is up),
             # so the operator button keeps working, then put the stock menu back.
@@ -2624,7 +3145,11 @@ class Kiosk:
             if self.op_down_at and not self.op_fired:
                 if now - self.op_down_at >= int(self.cfg["operator_hold_ms"]) / 1000.0:
                     self.op_fired = True
-                    self.set_locked(not self.state["locked"])
+                    if (not self.state["locked"] and self.mode in (S_UNLOCKED, S_RETURNING)
+                            and flag(self.cfg, "operator_menu")):
+                        self.open_operator()
+                    else:
+                        self.set_locked(not self.state["locked"])
             # Menu hold (if configured)
             hold = int(self.cfg["menu_hold_ms"]) / 1000.0
             if (self.mode == S_GAME and hold > 0 and self.menu_down_at
@@ -2654,6 +3179,21 @@ class Kiosk:
                     and now - self.game_last_input >= idle_exit):
                 self.state["pending_toast"] = "GAME ENDED\nNO INPUT"
                 self.exit_game("no input for %d s" % idle_exit)
+
+            if self.mode == S_OPERATOR:
+                self.tick_repeat(now)
+                if self.opview and self.opview.toast and now > self.opview.toast_until:
+                    self.opview.toast = None
+                    self.need_redraw = True
+                timeout = float(self.cfg["operator_timeout_s"])
+                if timeout > 0 and now - self.op_activity >= timeout:
+                    log("operator menu left alone for %d s; locking" % timeout)
+                    self.set_locked(True)
+                if now - self.last_fb_check > 1.0:
+                    self.last_fb_check = now
+                    self.check_fb_mode()
+                if self.need_redraw:
+                    self.draw()
 
             if self.mode == S_LAUNCHER:
                 self.tick_repeat(now)
@@ -2739,6 +3279,8 @@ def main(argv):
         return send_control("lock")
     if "--unlock" in argv:
         return send_control("unlock")
+    if "--stock" in argv:
+        return send_control("stock")
     if "--rescan" in argv:
         return send_control("rescan")
     if "--relearn" in argv:
