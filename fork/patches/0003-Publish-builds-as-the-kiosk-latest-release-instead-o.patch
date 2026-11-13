@@ -1,0 +1,68 @@
+From 7020ca5fac278b60b967c9cc918cf27f4ef044fb Mon Sep 17 00:00:00 2001
+From: alex-acsit <alex@acsit.com.au>
+Date: Fri, 13 Nov 2026 22:07:56 +1100
+Subject: [PATCH 3/5] Publish builds as the kiosk-latest release instead of an
+ artifact
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01BiX7tJ3KvN3UYXpZzAPMyh
+---
+ .github/workflows/build.yml | 20 ++++++++++++++------
+ README_KIOSK.md             |  5 +++--
+ 2 files changed, 17 insertions(+), 8 deletions(-)
+
+diff --git a/.github/workflows/build.yml b/.github/workflows/build.yml
+index f2b683f..2e62b9e 100644
+--- a/.github/workflows/build.yml
++++ b/.github/workflows/build.yml
+@@ -1,6 +1,6 @@
+ # Builds the MiSTer main binary with the official ARM GCC 10.2 toolchain, as
+-# upstream Main_MiSTer does, and attaches it to the run (and to a release when
+-# a tag like v1.0-kiosk is pushed).
++# upstream Main_MiSTer does, and publishes it as a release (kiosk-latest for
++# the main branch, or a versioned release when a tag like v1.0-kiosk is pushed).
+ name: Build MiSTer
+ 
+ on:
+@@ -32,10 +32,18 @@ jobs:
+           make -j"$(nproc)"
+           ls -l bin/MiSTer
+ 
+-      - uses: actions/upload-artifact@v4
+-        with:
+-          name: MiSTer
+-          path: bin/MiSTer
++      # Builds on main replace the "kiosk-latest" release, so the newest binary
++      # is always at .../releases/download/kiosk-latest/MiSTer. (Release files
++      # don't count towards the Actions artifact storage quota.)
++      - name: Publish kiosk-latest
++        if: github.ref == 'refs/heads/main'
++        env:
++          GH_TOKEN: ${{ github.token }}
++        run: |
++          gh release delete kiosk-latest --cleanup-tag -y || true
++          gh release create kiosk-latest bin/MiSTer --prerelease --target "$GITHUB_SHA" \
++            --title "Kiosk build (latest)" \
++            --notes "MiSTer main program with MisterOperator kiosk support, built from ${GITHUB_SHA::7} with ARM GCC 10.2."
+ 
+       - name: Release
+         if: startsWith(github.ref, 'refs/tags/')
+diff --git a/README_KIOSK.md b/README_KIOSK.md
+index 50fb42e..5f529b8 100644
+--- a/README_KIOSK.md
++++ b/README_KIOSK.md
+@@ -28,8 +28,9 @@ whole patch.
+ 
+ ## Getting the binary
+ 
+-Every push builds `MiSTer` with the official ARM GCC 10.2 toolchain (GitHub Actions →
+-**Build MiSTer** → artifact). Tagged versions attach it to a GitHub release.
++Every push to `main` builds `MiSTer` with the official ARM GCC 10.2 toolchain (GitHub
++Actions → **Build MiSTer**) and publishes it as the **kiosk-latest** release. Tagged
++versions get a release of their own.
+ 
+ ## Installing
+ 
+-- 
+2.43.0
+

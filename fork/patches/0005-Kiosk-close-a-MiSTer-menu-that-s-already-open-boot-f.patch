@@ -1,0 +1,115 @@
+From 7c65551947fc867d6c32761be6b45b2b0895086a Mon Sep 17 00:00:00 2001
+From: alex-acsit <alex@acsit.com.au>
+Date: Fri, 13 Nov 2026 22:31:11 +1100
+Subject: [PATCH 5/5] Kiosk: close a MiSTer menu that's already open; boot
+ flag; MGL fix
+
+- At boot the main program starts before the kiosk, so the menu core had
+  already opened the MiSTer menu by the time /tmp/kiosk_active appeared,
+  and with the OSD hotkeys blocked nothing could close it. Now, whenever
+  the kiosk is active in the menu core and the OSD is showing or the
+  framebuffer is off, the menu is closed and the framebuffer turned on,
+  as F9 does.
+- /media/fat/config/kiosk_boot (left by the kiosk) counts as the kiosk
+  flag for the first 120 s after power-on, so the menu doesn't open
+  before the kiosk has started. After that only /tmp/kiosk_active counts.
+- .mgl files load their content through the menu; don't block that.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01BiX7tJ3KvN3UYXpZzAPMyh
+---
+ kiosk.cpp |  8 +++++++-
+ kiosk.h   |  6 ++++++
+ menu.cpp  | 20 +++++++++++++++++++-
+ 3 files changed, 32 insertions(+), 2 deletions(-)
+
+diff --git a/kiosk.cpp b/kiosk.cpp
+index 685086d..1426ce5 100644
+--- a/kiosk.cpp
++++ b/kiosk.cpp
+@@ -1,5 +1,6 @@
+ #include <stdio.h>
+ #include <sys/stat.h>
++#include <sys/sysinfo.h>
+ 
+ #include "kiosk.h"
+ #include "hardware.h"
+@@ -17,6 +18,11 @@ bool kiosk_active()
+ 	{
+ 		struct stat st;
+ 		active = !stat(KIOSK_FLAG, &st);
++		if (!active && !stat(KIOSK_BOOT_FLAG, &st))
++		{
++			struct sysinfo si;
++			active = !sysinfo(&si) && si.uptime < KIOSK_BOOT_SECONDS;
++		}
+ 		next_check = GetTimer(200);
+ 	}
+ 	return active;
+@@ -27,7 +33,7 @@ void kiosk_write_features()
+ 	FILE *f = fopen(KIOSK_FEATURES, "w");
+ 	if (f)
+ 	{
+-		fputs("kiosk_active\nsave_nvram\nquiet_volume\n", f);
++		fputs("kiosk_active\nsave_nvram\nquiet_volume\nboot_flag\nclose_menu\n", f);
+ 		fclose(f);
+ 	}
+ }
+diff --git a/kiosk.h b/kiosk.h
+index c847fb6..e2a4ff9 100644
+--- a/kiosk.h
++++ b/kiosk.h
+@@ -17,6 +17,12 @@
+ // At start-up KIOSK_FEATURES lists what this build supports, one word per line.
+ 
+ #define KIOSK_FLAG     "/tmp/kiosk_active"
++// Left on the SD card by the kiosk. For the first KIOSK_BOOT_SECONDS after
++// power-on it counts as KIOSK_FLAG, so the MiSTer menu doesn't open before the
++// kiosk has started. After that only KIOSK_FLAG counts, so a missing or broken
++// kiosk can never keep the menu blocked.
++#define KIOSK_BOOT_FLAG    "/media/fat/config/kiosk_boot"
++#define KIOSK_BOOT_SECONDS 120
+ #define KIOSK_FEATURES "/tmp/MiSTer_features"
+ 
+ bool kiosk_active();
+diff --git a/menu.cpp b/menu.cpp
+index ffe27f8..aee3b30 100644
+--- a/menu.cpp
++++ b/menu.cpp
+@@ -1498,6 +1498,24 @@ void HandleUI(void)
+ 		}
+ 	}
+ 
++	// MisterOperator kiosk: if it takes over while the MiSTer menu is already
++	// showing in the menu core (e.g. the kiosk started after this program),
++	// close the menu and switch to the kiosk's framebuffer, as F9 does.
++	if (kiosk_active() && is_menu() && cfg.fb_terminal && !select_ini &&
++		(!video_fb_state() || user_io_osd_is_visible()))
++	{
++		if (!video_fb_state())
++		{
++			video_chvt(1);
++			video_fb_enable(1);
++		}
++		has_fb_terminal = 1;
++		OsdDisable();
++		menustate = MENU_NONE1;
++		menu = false;
++		c = 0;
++	}
++
+ 	//prevent OSD control while script is executing on framebuffer,
+ 	//or while the MisterOperator kiosk owns the screen
+ 	if ((!video_fb_state() || video_chvt(0) != 2) && !select_ini && !kiosk_active())
+@@ -1771,7 +1789,7 @@ void HandleUI(void)
+ 		// fall through
+ 
+ 	case MENU_NONE2:
+-		if (kiosk_active())
++		if (kiosk_active() && (mgl->done || mgl->state != 1))
+ 		{
+ 			// MisterOperator kiosk: never open the OSD. In the menu core go
+ 			// straight to the Linux framebuffer the kiosk draws on, instead
+-- 
+2.43.0
+

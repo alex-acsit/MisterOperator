@@ -1,0 +1,27 @@
+From dbf01372985f9c8f7a6a429cfc772a05d367bb6c Mon Sep 17 00:00:00 2001
+From: alex-acsit <alex@acsit.com.au>
+Date: Fri, 13 Nov 2026 22:05:47 +1100
+Subject: [PATCH 2/5] Build on the main branch too
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01BiX7tJ3KvN3UYXpZzAPMyh
+---
+ .github/workflows/build.yml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/.github/workflows/build.yml b/.github/workflows/build.yml
+index 3cf534f..f2b683f 100644
+--- a/.github/workflows/build.yml
++++ b/.github/workflows/build.yml
+@@ -5,7 +5,7 @@ name: Build MiSTer
+ 
+ on:
+   push:
+-    branches: [master, kiosk]
++    branches: [main, master, kiosk]
+     tags: ["v*"]
+   pull_request:
+   workflow_dispatch:
+-- 
+2.43.0
+

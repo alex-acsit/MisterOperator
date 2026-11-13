@@ -3,9 +3,11 @@ sys.path.insert(0, sys.argv[1]); import arcadekiosk as K
 T = sys.argv[2]
 K.CONFIG_PATH = T + "/kiosk/kiosk.ini"; K.STATE_PATH = T + "/state.json"; K.CACHE_PATH = T + "/cache.json"
 K.LOG_PATH = T + "/log.txt"; K.STATUS_PATH = T + "/status.json"; K.CTL_PATH = T + "/ctl"
-K.KIOSK_FLAG = T + "/kiosk_active"; K.FEATURES_PATH = T + "/MiSTer_features"
+K.KIOSK_FLAG = T + "/kiosk_active"; K.FEATURES_PATH = T + "/MiSTer_features"; K.KIOSK_BOOT_FLAG = T + "/kiosk_boot"
 K.MAIN_BIN = T + "/fat/MiSTer"; K.KIOSK_MAIN = T + "/kiosk/MiSTer_kiosk"; K.VOLUME_PATH = T + "/Volume.dat"
 os.makedirs(T + "/fat"); open(K.MAIN_BIN, "wb").write(b"STOCK MAIN")
+if os.path.exists(K.KIOSK_MAIN):
+    os.remove(K.KIOSK_MAIN)           # the shipped binary; these tests bring their own
 for k, v in (("arcade_dir", T + "/_Arcade"), ("menu_button", "BTN_BASE4"), ("operator_button", "BTN_BASE5"),
              ("exit_grace_s", "0"), ("operator_hold_ms", "0"), ("nvram_dir", T + "/nvram"), ("nvram_save_s", "0.01")):
     K.set_config_value(k, v)
@@ -22,6 +24,7 @@ def fake_activate(self):
     self.fb = type("F", (), {"present": lambda s, c: None, "clear": lambda s: None, "close": lambda s: None,
                              "xres": 320, "yres": 240, "fmt": K.PixelFormat()})()
     self.make_canvases(); return True
+real_activate = K.Kiosk.activate_framebuffer
 K.Kiosk.activate_framebuffer = fake_activate
 K.Kiosk.scan_devices = lambda self: None
 class Keys:
@@ -116,6 +119,16 @@ check(open(K.MAIN_BIN, "rb").read() == b"KIOSK MAIN" and open(K.MAIN_BIN + ".sto
 open(K.FEATURES_PATH, "w").write("kiosk_active\nsave_nvram\n")
 row = [it for it in k.opview.items() if it[0] == "MISTER MAIN"][0]
 check(row[1]() == "KIOSK" and row[3] is None, "after reboot: shows KIOSK")
+open(K.KIOSK_MAIN, "wb").write(b"KIOSK MAIN v2")     # a newer kiosk build copied in
+row = [it for it in k.opview.items() if it[0] == "MISTER MAIN"][0]
+check(row[1]() == "OLD: 1 UPDATES" and row[3] is not None, "newer MiSTer_kiosk: offers an update")
+k.state.pop("main_install_check", None); rebooted.clear()
+k.opview.sel = [i for i, it in enumerate(k.opview.items()) if it[0] == "MISTER MAIN"][0]
+press(0x120); press(0x120)
+check(open(K.MAIN_BIN, "rb").read() == b"KIOSK MAIN v2" and open(K.MAIN_BIN + ".stock", "rb").read() == b"STOCK MAIN"
+      and rebooted, "update installed; MiSTer.stock still the original stock program")
+row = [it for it in k.opview.items() if it[0] == "MISTER MAIN"][0]
+check(row[1]() == "KIOSK", "then shows KIOSK")
 
 # ---- safety net: a main program that never starts is rolled back
 check(k.state.get("main_install_check"), "install marks the next boot for checking")
@@ -127,7 +140,37 @@ check(not ok and open(K.MAIN_BIN, "rb").read() == b"STOCK MAIN" and rebooted and
 k.state["main_install_check"] = True; K.mister_ready = lambda: True; rebooted.clear()
 check(k.check_new_main(wait=1) and not rebooted and not k.state.get("main_install_check"), "new main starts: check cleared")
 
+# ---- boot flag on the SD card
+K.KIOSK_BOOT_FLAG = T + "/fat/config/kiosk_boot"
+K.set_boot_flag(True)
+check(os.path.exists(K.KIOSK_BOOT_FLAG), "boot flag written (so the kiosk build skips its menu at power-on)")
+K.set_boot_flag(True); K.set_boot_flag(False)
+check(not os.path.exists(K.KIOSK_BOOT_FLAG), "and removed when the kiosk shouldn't own the boot")
+
 # ---- the kiosk never leaves the MiSTer menu blocked
 K.set_kiosk_flag(False)
 check(not flag(), "flag can be cleared (done on exit)")
+# ---- early kiosk build stuck on its menu at boot: the kiosk reloads the menu core
+import threading
+m = {"fb": False, "param": "8888 1 640 480 2560", "stamp": 1, "reloads": 0}
+K.read_fb_param = lambda: m["param"].split()
+K.write_fb_param = lambda v: m.__setitem__("param", " ".join(map(str, v)))
+K.core_stamp = lambda: m["stamp"]
+def cmd(t, quiet=False):
+    if t.startswith("fb_cmd1") and m["fb"]:
+        p = t.split(); m["param"] = "%s %s %s %s %d" % (p[1], p[2], p[3], p[4], int(p[3]) * 4)
+    if t == "load_core " + K.MENU_RBF:      # new main process: flag present -> straight to fb
+        m["reloads"] += 1; m["stamp"] += 1; m["fb"] = True
+K.mister_cmd = cmd
+class DeadF9:
+    def tap(s, c): pass                     # the early build ignores F9 while the flag exists
+K.Framebuffer = lambda: type("F", (), {"xres": 320, "yres": 240, "fmt": K.PixelFormat()})()
+open(K.FEATURES_PATH, "w").write("kiosk_active\nsave_nvram\n"); K.set_kiosk_flag(True)
+k3 = K.Kiosk.__new__(K.Kiosk); k3.cfg = dict(K.DEFAULTS); k3.keys_dev = DeadF9(); k3.own_nodes = set()
+K.Kiosk.activate_framebuffer = real_activate
+t0 = time.monotonic(); ok = k3.activate_framebuffer(timeout=8)
+check(ok and m["reloads"] == 1 and m["param"].startswith("8888 1 320 240"),
+      "menu stuck with F9 blocked: kiosk reloads the menu core once and takes over (%.1f s)" % (time.monotonic() - t0))
+K.set_kiosk_flag(False)
+
 print("%d failure(s)" % fails)

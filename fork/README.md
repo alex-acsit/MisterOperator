@@ -21,7 +21,7 @@ colour, because that is built into every core's FPGA design.
 
 ## Files
 
-- `0001-MisterOperator-kiosk-support.patch`: the patch, against upstream Main_MiSTer:
+- `patches/`: the patch series against upstream Main_MiSTer (apply with `git am`):
   2 new files (`kiosk.cpp`, `kiosk.h`) and a few lines in `main.cpp`, `menu.cpp`,
   `input.cpp` and `audio.cpp`, plus a GitHub Actions workflow that builds it with the
   official ARM GCC 10.2 toolchain.
@@ -33,11 +33,18 @@ of upstream plus the patch). Its GitHub Actions build it with the official ARM G
 toolchain and publish the binary as the **kiosk-latest** release. That binary is included
 here as `arcade_kiosk/MiSTer_kiosk`, built from upstream 8329c5a.
 
+At power-on the main program starts before the kiosk. So the kiosk also leaves
+`/media/fat/config/kiosk_boot` on the SD card, which this build treats as the kiosk flag
+for the first 2 minutes after power-on: no MiSTer menu at boot either. After that only
+`/tmp/kiosk_active` counts, so a missing or broken kiosk can't keep the menu blocked. If
+the kiosk takes over while the MiSTer menu is already showing, the build closes it.
+
 ## Installing
 
 1. `MiSTer_kiosk` is already in the kiosk folder (`/media/fat/arcade_kiosk/`). For a newer
    build, download `MiSTer` from the kiosk-latest release and save it there under that name.
-2. Open the operator menu, go to **MiSTer main** (it shows `STOCK: 1 INSTALLS`) and
+2. Open the operator menu, go to **MiSTer main** (it shows `STOCK: 1 INSTALLS`, or
+   `OLD: 1 UPDATES` when the kiosk folder has a newer build than the installed one) and
    press Button 1 twice. The kiosk keeps the original as `/media/fat/MiSTer.stock`, copies
    the kiosk build in, and reboots. The row then shows `KIOSK`.
 3. **Safety net:** if the new main program hasn't started within 90 s of that reboot,
@@ -47,6 +54,7 @@ MiSTer's updaters (`update_all`, `downloader`) put the stock binary back. Nothin
 the kiosk notices, works the way it does with stock MiSTer, and the operator menu shows
 `STOCK: 1 INSTALLS` until you install it again.
 
-To remove it for good, copy `MiSTer.stock` back over `MiSTer`. If the MiSTer menu ever
+To remove it for good, copy `MiSTer.stock` back over `MiSTer` and delete
+`/media/fat/config/kiosk_boot`. If the MiSTer menu ever
 seems blocked with the kiosk stopped, `rm /tmp/kiosk_active` over SSH, or a reboot,
 clears it.

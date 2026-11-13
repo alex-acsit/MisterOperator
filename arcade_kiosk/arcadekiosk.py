@@ -64,7 +64,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from font8x8 import FONT  # noqa: E402
 
-VERSION = "2.0"
+VERSION = "2.0.1"
 
 CONFIG_PATH = os.path.join(HERE, "kiosk.ini")
 STATE_PATH = os.path.join(HERE, "state.json")
@@ -82,6 +82,9 @@ VOLUME_PATH = "/media/fat/config/Volume.dat"
 # MisterOperator build of the MiSTer main program (github.com/alex-acsit/Main_MiSTer)
 KIOSK_FLAG = "/tmp/kiosk_active"          # while it exists, that build shows no MiSTer menu
 FEATURES_PATH = "/tmp/MiSTer_features"    # written by that build at start-up
+# Kept on the SD card: in the first 2 minutes after power-on that build treats it
+# like KIOSK_FLAG, so its menu doesn't open at boot before the kiosk has started.
+KIOSK_BOOT_FLAG = "/media/fat/config/kiosk_boot"
 MAIN_BIN = "/media/fat/MiSTer"
 KIOSK_MAIN = os.path.join(HERE, "MiSTer_kiosk")
 VIRTUAL_PHYS = "arcadekiosk/"
@@ -1168,7 +1171,7 @@ class OperatorView:
             ("VIEW LOG", lambda: ">", None, lambda: self.open_page("log")),
             ("MISTER MENU", lambda: ">", None, k.operator_stock_menu),
             ("MISTER MAIN", self.main_text, None,
-             k.install_kiosk_main if k.main_status() == "STOCK" and os.path.exists(KIOSK_MAIN) else None),
+             k.install_kiosk_main if k.main_status() in ("STOCK", "OLD") and os.path.exists(KIOSK_MAIN) else None),
             ("REBOOT", lambda: "", None, k.operator_reboot),
         ]
         return out
@@ -1208,6 +1211,8 @@ class OperatorView:
         st = self.k.main_status()
         if st == "STOCK" and os.path.exists(KIOSK_MAIN):
             return "STOCK: 1 INSTALLS"
+        if st == "OLD":
+            return "OLD: 1 UPDATES"
         return st
 
     def screen_text(self):
@@ -1716,6 +1721,33 @@ def set_kiosk_flag(on):
             os.remove(KIOSK_FLAG)
     except OSError as e:
         log("kiosk flag: %s" % e)
+
+
+def same_file(a, b):
+    try:
+        if os.path.getsize(a) != os.path.getsize(b):
+            return False
+        with open(a, "rb") as fa, open(b, "rb") as fb:
+            while True:
+                x, y = fa.read(1 << 16), fb.read(1 << 16)
+                if x != y:
+                    return False
+                if not x:
+                    return True
+    except OSError:
+        return False
+
+
+def set_boot_flag(on):
+    try:
+        if on and not os.path.exists(KIOSK_BOOT_FLAG):
+            os.makedirs(os.path.dirname(KIOSK_BOOT_FLAG), exist_ok=True)
+            with open(KIOSK_BOOT_FLAG, "w") as f:
+                f.write("MisterOperator kiosk: skip the MiSTer menu at boot\n")
+        elif not on and os.path.exists(KIOSK_BOOT_FLAG):
+            os.remove(KIOSK_BOOT_FLAG)
+    except OSError as e:
+        log("boot flag: %s" % e)
 
 
 def core_name():
@@ -2260,9 +2292,23 @@ class Kiosk:
                     mister_cmd(fb_cmd, quiet=True)
                     accepted(0.4)
 
+            reloaded = False
             while time.monotonic() < deadline and not ok:
                 if not mister_ready():
                     time.sleep(0.03)
+                    continue
+                if (not reloaded and time.monotonic() - t0 > 3
+                        and "kiosk_active" in main_features() and os.path.exists(KIOSK_FLAG)):
+                    # Kiosk build of the MiSTer main program, but its menu is still
+                    # up (an early build that started before the kiosk and blocks
+                    # F9). A fresh start of the menu core skips the menu.
+                    log("MiSTer menu still showing; reloading the menu core")
+                    reloaded = True
+                    stamp = core_stamp()
+                    mister_cmd("load_core %s" % MENU_RBF)
+                    wait_until = time.monotonic() + 10
+                    while time.monotonic() < wait_until and core_stamp() == stamp:
+                        time.sleep(0.1)
                     continue
                 cur = read_fb_param()
                 if cur and cur[:4] == target:
@@ -2687,7 +2733,13 @@ class Kiosk:
             self.flag_on = want
 
     def main_status(self):
-        return "KIOSK" if "kiosk_active" in main_features() else "STOCK"
+        """KIOSK, STOCK, or OLD when a kiosk build is installed but MiSTer_kiosk
+        in the kiosk folder is a different (newer) one."""
+        if "kiosk_active" not in main_features():
+            return "STOCK"
+        if os.path.exists(KIOSK_MAIN) and not same_file(MAIN_BIN, KIOSK_MAIN):
+            return "OLD"
+        return "KIOSK"
 
     def install_kiosk_main(self):
         """Copy the kiosk build of the MiSTer main program over /media/fat/MiSTer
@@ -3197,7 +3249,9 @@ class Kiosk:
 
     def run(self):
         log("Arcade Kiosk %s starting (locked=%s)" % (VERSION, self.state["locked"]))
-        if self.state["locked"] or flag(self.cfg, "operator_menu"):
+        kiosk_boot = flag(self.cfg, "lock_on_boot") or self.state["locked"] or flag(self.cfg, "operator_menu")
+        set_boot_flag(kiosk_boot)
+        if kiosk_boot:
             set_kiosk_flag(True)
             self.flag_on = True
         self.check_new_main()

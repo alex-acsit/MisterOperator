@@ -1,0 +1,39 @@
+From 573707709be997d25d007c632ece77f806d3786f Mon Sep 17 00:00:00 2001
+From: alex-acsit <alex@acsit.com.au>
+Date: Fri, 13 Nov 2026 22:09:51 +1100
+Subject: [PATCH 4/5] README_KIOSK: how to move to a newer upstream
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01BiX7tJ3KvN3UYXpZzAPMyh
+---
+ README_KIOSK.md | 15 +++++++++++----
+ 1 file changed, 11 insertions(+), 4 deletions(-)
+
+diff --git a/README_KIOSK.md b/README_KIOSK.md
+index 5f529b8..7b99da7 100644
+--- a/README_KIOSK.md
++++ b/README_KIOSK.md
+@@ -43,9 +43,16 @@ versions get a release of their own.
+ 
+ ## Keeping up with upstream
+ 
++This repo holds a snapshot of upstream (without its `releases/` folder of old binaries)
++plus one commit with the kiosk patch. To move to a newer upstream:
++
+ ```
+-git remote add upstream https://github.com/MiSTer-devel/Main_MiSTer
+-git fetch upstream
+-git rebase upstream/master     # the patch is small, so conflicts are rare
+-git push --force-with-lease
++git clone --depth 1 https://github.com/MiSTer-devel/Main_MiSTer /tmp/upstream
++git format-patch -1 <kiosk commit> -o /tmp/patch     # save the patch
++# replace everything except .git, README_KIOSK.md and .github with /tmp/upstream's
++# files (minus releases/), commit as "Import Main_MiSTer upstream <hash>", then:
++git am /tmp/patch/*.patch
+ ```
++
++The patch is small, so it rarely conflicts. A copy is kept in MisterOperator's
++`fork/` folder.
+-- 
+2.43.0
+
