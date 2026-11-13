@@ -11,13 +11,9 @@ recents=0              ; nothing gets written to the SD card on each launch
 ; Rotate the MiSTer's own menu too, so it's readable after unlocking:
 ; 1 = rotate right, 2 = rotate left. Use whichever matches the kiosk.
 ;osd_rotate=1
-; Optional second lock on the in-game OSD. Don't use this with games that
-; keep NVRAM (NBA Jam, Mortal Kombat...): the kiosk saves their NVRAM by
-; opening the OSD for a moment, and the lock would stop the save. Even if a player finds a button
-; that opens it, they need this code (U D L R A B). Operators enter it after
-; unlocking. Remove if you'd rather not.
-;osd_lock=UUDDLRLR
-;osd_lock_time=5
+; Leave osd_lock unset. The kiosk does the locking (completely, with its
+; kiosk build of the MiSTer main program), and with stock MiSTer osd_lock
+; would stop the kiosk saving NVRAM for games like NBA Jam.
 
 ; Add this section at the end of the file. It makes the menu core (and so the
 ; game list) output 320x240 at 15 kHz through the analog port.

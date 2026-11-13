@@ -39,6 +39,9 @@ echo "Next:"
 echo " 1. Add the lines from MiSTer_ini_additions.txt to /media/fat/MiSTer.ini"
 echo " 2. Reboot. The game list appears and asks for the PLAYER MENU"
 echo "    button, then the OPERATOR button."
-echo " 3. Hold OPERATOR for 1.5 s to unlock (stock menu) or lock again."
+echo " 3. Hold OPERATOR for 1.5 s for the operator menu; hold it again to lock."
+echo
+echo "Manual: /media/fat/arcade_kiosk/MANUAL.md"
+echo "Updates: Scripts -> update_arcade_kiosk, or the operator menu."
 echo
 echo "Log: /tmp/arcadekiosk.log"

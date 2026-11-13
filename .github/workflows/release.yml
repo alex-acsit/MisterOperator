@@ -43,6 +43,7 @@ jobs:
         run: |
           rm -rf arcade_kiosk/__pycache__
           mkdir -p arcade_kiosk/art
+          cp MANUAL.md arcade_kiosk/MANUAL.md        # the manual travels with the kiosk
           zip -qr "MisterOperator_v${VERSION}.zip" arcade_kiosk Scripts -x '*/__pycache__/*'
           unzip -l "MisterOperator_v${VERSION}.zip" | tail -1
 
