@@ -1,4 +1,4 @@
-From c0c7b065e9cab4f5c3fccb4f920a42342650cbc1 Mon Sep 17 00:00:00 2001
+From 21cf5999974a9985d49d48eea638adf152512e5e Mon Sep 17 00:00:00 2001
 From: alex-acsit <alex@acsit.com.au>
 Date: Fri, 13 Nov 2026 17:22:41 +1100
 Subject: [PATCH] MisterOperator kiosk support
@@ -162,7 +162,7 @@ index ad70709..f16a133 100644
  	{
  		Info("\x8d Mute", 1000);
 diff --git a/input.cpp b/input.cpp
-index 733271e..a67c274 100644
+index 7245c5e..a84b516 100644
 --- a/input.cpp
 +++ b/input.cpp
 @@ -1,4 +1,5 @@
@@ -171,7 +171,7 @@ index 733271e..a67c274 100644
  #include <fcntl.h>
  #include <unistd.h>
  #include <signal.h>
-@@ -6599,6 +6600,10 @@ int input_test(int getchar)
+@@ -6208,6 +6209,10 @@ int input_test(int getchar)
  						}
  						request_screenshot(p, scaled);
  					}
@@ -284,7 +284,7 @@ index f1eaf82..41a3563 100644
  #ifdef USE_SCHEDULER
  	scheduler_init();
 diff --git a/menu.cpp b/menu.cpp
-index 110b63b..4782fda 100644
+index eace36e..ffe27f8 100644
 --- a/menu.cpp
 +++ b/menu.cpp
 @@ -28,6 +28,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
@@ -295,7 +295,7 @@ index 110b63b..4782fda 100644
  #include <arpa/inet.h>
  #include <sys/socket.h>
  #include <netdb.h>
-@@ -1369,8 +1370,9 @@ void HandleUI(void)
+@@ -1497,8 +1498,9 @@ void HandleUI(void)
  		}
  	}
  
@@ -305,9 +305,9 @@ index 110b63b..4782fda 100644
 +	//or while the MisterOperator kiosk owns the screen
 +	if ((!video_fb_state() || video_chvt(0) != 2) && !select_ini && !kiosk_active())
  	{
- 		switch (c)
- 		{
-@@ -1638,6 +1640,19 @@ void HandleUI(void)
+ 		if (c == KEY_ENTER || c == KEY_KPENTER) finish = true;
+ 		if (get_map_paused() && (c == KEY_F7 || c == KEY_F9 || c == KEY_F10 || c == KEY_F11)) c = 0;
+@@ -1769,6 +1771,19 @@ void HandleUI(void)
  		// fall through
  
  	case MENU_NONE2:
