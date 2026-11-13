@@ -207,9 +207,9 @@ previous version is saved in `arcade_kiosk/backup/`. A download that's damaged o
 run is refused before anything changes. Updates come from `update_repo`; while that repo
 is private, set `update_token` to a GitHub token with read access.
 
-**Publishing a release:** set `VERSION` in `arcadekiosk.py`, commit, then tag it
-(`git tag v2.1 && git push origin v2.1`). GitHub Actions runs the tests, builds
-`MisterOperator_v2.1.zip` and publishes the release.
+**Publishing a release:** change `VERSION` in `arcadekiosk.py` and push to `main`. GitHub
+Actions runs the tests, builds `MisterOperator_v<version>.zip` and publishes it as release
+`v<version>`. Pushes that don't change the version don't make a release.
 
 ## Kiosk build of the MiSTer main program (optional)
 

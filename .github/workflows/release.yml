@@ -1,10 +1,14 @@
-# Pushing a tag like v2.1 runs the tests, builds the SD-card zip and publishes
-# it as a GitHub release. The kiosk's updater installs the latest release.
+# Publishes a release whenever arcadekiosk.py's VERSION changes on main (or a
+# vX.Y tag is pushed): runs the tests, builds the SD-card zip and creates the
+# release (and its tag). The kiosk's updater installs the latest release.
 name: Release
 
 on:
   push:
+    branches: [main]
+    paths: ["arcade_kiosk/arcadekiosk.py"]
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -15,21 +19,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check the tag matches the kiosk version
+      - name: Version
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           v=$(sed -n 's/^VERSION = "\(.*\)"/\1/p' arcade_kiosk/arcadekiosk.py)
-          tag="${GITHUB_REF_NAME#v}"
-          echo "kiosk $v, tag $tag"
-          if [ "$v" != "$tag" ]; then
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "${GITHUB_REF_NAME#v}" != "$v" ]; then
             echo "::error::Tag $GITHUB_REF_NAME doesn't match VERSION $v in arcadekiosk.py"
             exit 1
           fi
-          echo "VERSION=$v" >> "$GITHUB_ENV"
+          if gh release view "v$v" >/dev/null 2>&1; then
+            echo "Release v$v already exists; nothing to do."
+            echo "SKIP=1" >> "$GITHUB_ENV"
+          fi
 
       - name: Run tests
+        if: env.SKIP != '1'
         run: bash tests/run_tests.sh
 
       - name: Build the SD-card zip
+        if: env.SKIP != '1'
         run: |
           rm -rf arcade_kiosk/__pycache__
           mkdir -p arcade_kiosk/art
@@ -37,10 +47,10 @@ jobs:
           unzip -l "MisterOperator_v${VERSION}.zip" | tail -1
 
       - name: Publish
+        if: env.SKIP != '1'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          notes=$(git tag -l --format='%(contents)' "$GITHUB_REF_NAME")
-          [ -z "$notes" ] && notes="MisterOperator $VERSION"
-          gh release create "$GITHUB_REF_NAME" "MisterOperator_v${VERSION}.zip" \
-            --title "MisterOperator $VERSION" --notes "$notes"
+          notes=$(git log -1 --format=%B)
+          gh release create "v${VERSION}" "MisterOperator_v${VERSION}.zip" \
+            --target "$GITHUB_SHA" --title "MisterOperator ${VERSION}" --notes "$notes"
