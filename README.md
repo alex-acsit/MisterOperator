@@ -191,8 +191,8 @@ menu in between.
 With stock MiSTer, its own menu shows for a moment at boot and after each game, and
 saving a game's NVRAM briefly flashes it open. The kiosk build of the MiSTer main program
 removes all of that: the MiSTer goes straight to the kiosk, saves NVRAM silently on every
-quit, and its menu can't be opened at all while the cabinet is locked. Install it from
-the operator menu (**MiSTer main**). The kiosk keeps the original, rolls back by itself if
+quit, and its menu can't be opened at all while the cabinet is locked. It's included as
+`arcade_kiosk/MiSTer_kiosk`; install it from the operator menu (**MiSTer main**). The kiosk keeps the original, rolls back by itself if
 the new one doesn't start, and keeps working if an update puts the stock one back. See
 [`fork/`](fork/README.md) for details.
 

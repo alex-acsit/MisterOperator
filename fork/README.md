@@ -28,12 +28,15 @@ colour, because that is built into every core's FPGA design.
 - `zigbuild.py`: a compile-and-link check that works without that toolchain
   (`pip install ziglang`, then `python3 zigbuild.py <Main_MiSTer dir> <build dir>`).
 
-The fork itself lives at `github.com/alex-acsit/Main_MiSTer` (branch `kiosk`), and its
-GitHub Actions builds the `MiSTer` binary.
+The patched source lives at `github.com/alex-acsit/Main_MiSTer` (branch `main`: a snapshot
+of upstream plus the patch). Its GitHub Actions build it with the official ARM GCC 10.2
+toolchain and publish the binary as the **kiosk-latest** release. That binary is included
+here as `arcade_kiosk/MiSTer_kiosk`, built from upstream 8329c5a.
 
 ## Installing
 
-1. Put the built binary in the kiosk folder as `/media/fat/arcade_kiosk/MiSTer_kiosk`.
+1. `MiSTer_kiosk` is already in the kiosk folder (`/media/fat/arcade_kiosk/`). For a newer
+   build, download `MiSTer` from the kiosk-latest release and save it there under that name.
 2. Open the operator menu, go to **MiSTer main** (it shows `STOCK: 1 INSTALLS`) and
    press Button 1 twice. The kiosk keeps the original as `/media/fat/MiSTer.stock`, copies
    the kiosk build in, and reboots. The row then shows `KIOSK`.
