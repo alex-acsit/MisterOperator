@@ -9,7 +9,7 @@ Players get a simple game list and one button to get back to it. The operator ge
 hidden button that opens an operator menu in the same look, for servicing. Nothing
 else on the MiSTer is reachable while the cabinet is locked.
 
-Current version: **2.0**, for 15 kHz CRTs and USB arcade encoders. It also works on HDMI.
+Current version: **2.1**, for 15 kHz CRTs and USB arcade encoders. It also works on HDMI.
 
 ## Features
 
@@ -87,12 +87,15 @@ main page that locks the cabinet, as does holding OPERATOR again. Changes are sa
 | Idle game quit / Coin delay | The in-game timers |
 | Save NVRAM | `once`, `always` or `off` |
 | Screen / Theme | YOKO or TATE; green, phosphor or classic |
+| Show games | All, YOKO only or TATE only (horizontal or vertical games) |
+| Genres | Tick or untick each genre to show or hide its games; Show all / Hide all |
 | Game settings | Runs the last game played unlocked, so MENU opens the MiSTer menu for its DIP switches and core options. Hold OPERATOR to come back |
 | Play counts | How often each game has been played |
 | Reset NVRAM | Wipe one game's saved settings and high scores (asks first) |
 | Rescan games / View log | Pick up new `.mra` files; read the kiosk log |
 | MiSTer menu | The stock MiSTer menu, for anything else. Hold OPERATOR to come back |
 | MiSTer main | Whether the kiosk build of the MiSTer main program is running; installs it if not (see below) |
+| Update kiosk | Shows the version; press to check GitHub, press again to install a newer one |
 | Reboot | Restart the MiSTer (asks first) |
 
 `operator_menu = 0` brings back the old behaviour, where OPERATOR goes straight to the
@@ -105,7 +108,7 @@ The most-used `kiosk.ini` settings:
 | Setting | Default | What it does |
 |---|---|---|
 | `screen` | `yoko` | `tate_cw` / `tate_ccw` for a monitor on its side |
-| `orientation` | `all` | `horizontal` or `vertical` to list only those games |
+| `orientation` | `all` | `horizontal` or `vertical` to list only those games (also in the operator menu) |
 | `genres` / `exclude_genres` | — | Show only, or hide, these genres (e.g. `Shooter, Maze`) |
 | `theme` | `green` | `phosphor` or `classic`; `color_<name> = #RRGGBB` for single colours |
 | `title` | `ARCADE` | Heading on the list |
@@ -118,6 +121,7 @@ The most-used `kiosk.ini` settings:
 | `operator_menu` | `1` | Themed operator menu (`0` = straight to the stock menu) |
 | `save_nvram` | `once` | `always` keeps high scores (brief menu flash on quit); `off` never saves |
 | `standard_layout` | `1` | Same panel buttons 1–6 for every game (`0` = leave mappings alone) |
+| `auto_update` | `0` | `1` = install new releases by itself (checked at boot and daily) |
 
 <details>
 <summary><b>More about each feature</b></summary>
@@ -185,6 +189,28 @@ menu in between.
 
 </details>
 
+## Updating
+
+New versions are published as GitHub releases, and the kiosk can fetch them from any
+MiSTer with an internet connection:
+
+- **Operator menu → Update kiosk:** press once to check, again to install.
+- **MiSTer Scripts menu → update_arcade_kiosk.** On a MiSTer without the kiosk, this same
+  script downloads and installs it from scratch, so it's all you need to set up a new
+  cabinet: copy `Scripts/update_arcade_kiosk.sh` to `/media/fat/Scripts` and run it.
+- **Over SSH:** `arcadekiosk.py --update` (`--check` only looks; `--rollback` goes back).
+- **Automatically:** `auto_update = 1` checks after boot and once a day. A new version
+  installs in the background and takes over the next time nobody's playing.
+
+Updates keep `kiosk.ini` (adding any new settings), credits, play counts and box art. The
+previous version is saved in `arcade_kiosk/backup/`. A download that's damaged or doesn't
+run is refused before anything changes. Updates come from `update_repo`; while that repo
+is private, set `update_token` to a GitHub token with read access.
+
+**Publishing a release:** set `VERSION` in `arcadekiosk.py`, commit, then tag it
+(`git tag v2.1 && git push origin v2.1`). GitHub Actions runs the tests, builds
+`MisterOperator_v2.1.zip` and publishes the release.
+
 ## Kiosk build of the MiSTer main program (optional)
 
 With stock MiSTer, its own menu shows for a moment at boot and after each game, and
@@ -209,6 +235,7 @@ Over SSH, `python3 /media/fat/arcade_kiosk/arcadekiosk.py` accepts:
 | `--devices` | List input devices |
 | `--layout` / `--restore-maps` | Show each game's button layout / undo it |
 | `--preview out.ppm` | Draw the list to an image file (`--raw` for TATE as sent) |
+| `--update` / `--check` / `--rollback` | Install the latest release / just compare versions / go back one |
 
 ## How it works
 
@@ -266,6 +293,7 @@ Everything is logged to `/tmp/arcadekiosk.log`.
 | `arcade_kiosk/MiSTer_ini_additions.txt` | lines for `MiSTer.ini` | 15 kHz menu output and related settings |
 | `arcade_kiosk/tools/make_art.py` | your PC | Turns screenshots into box art |
 | `Scripts/install_arcade_kiosk.sh` | `/media/fat/Scripts/` | One-time installer |
+| `Scripts/update_arcade_kiosk.sh` | `/media/fat/Scripts/` | Installs or updates from GitHub |
 | `tests/` | — | Off-hardware tests: `tests/run_tests.sh` (Python 3 only) |
 | `docs/` | — | Screenshots |
 

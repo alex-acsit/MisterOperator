@@ -71,12 +71,21 @@ check(v.picker is None, "picker closes by itself after a few seconds")
 stick(K.ABS_X, 0)
 check(v.current()["label"] == "Tetris", "left/right without the picker still jump a letter at a time")
 
-# footer hints
+# footer: version instead of button hints
 c = K.Canvas(320, 240, K.PixelFormat())
 one = K.LauncherView(dict(cfg), [g for g in K.demo_games() if g["genre"] == "Maze"])
 one.draw(c)
 check(one.genres == ["Maze"], "locked to one genre")
-import io
-hint_line = lambda view: " ".join(h for h in ((view.cfg["footer_genre"] if len(view.genres) > 1 else ""), view.cfg["footer_letter"]) if h.strip())
-check(hint_line(one) == "4:A-Z" and hint_line(v) == "2/3:GENRE 4:A-Z", "footer hints drop GENRE when locked to one genre")
+check("footer_genre" not in K.DEFAULTS and "footer_letter" not in K.DEFAULTS, "footer hint settings removed")
+# the version text sits at the bottom right: compare with a canvas drawn without it
+ver = "V" + K.VERSION
+c2 = K.Canvas(320, 240, K.PixelFormat()); c2.fill(0, 0, 320, 240, K.BG)
+c2.text(320 - 8 - len(ver) * 8, 240 - 14, ver, K.DIM, K.BG)
+row = lambda cv, y: bytes(cv.buf[y * cv.stride + (320 - 8 - len(ver) * 8) * 4: y * cv.stride + 312 * 4])
+check(all(row(c, y) == row(c2, y) for y in range(226, 234)), "footer shows %s on the right" % ver)
+for screen, size in (("tate_cw", (240, 320)),):
+    tv = K.LauncherView(dict(cfg, screen=screen), K.demo_games())
+    tc = K.Canvas(*size, K.PixelFormat()); tv.draw(tc)
+    check(tv.ROWS == 16 and tv.LIST_Y + tv.ROWS * tv.ROW_H < tv.PANEL_Y and tv.PANEL_Y + tv.ART_H < size[1] - 18,
+          "TATE: 16 rows again, picture clear of the footer")
 print("%d failure(s)" % fails)

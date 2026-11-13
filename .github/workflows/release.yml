@@ -1,0 +1,46 @@
+# Pushing a tag like v2.1 runs the tests, builds the SD-card zip and publishes
+# it as a GitHub release. The kiosk's updater installs the latest release.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the tag matches the kiosk version
+        run: |
+          v=$(sed -n 's/^VERSION = "\(.*\)"/\1/p' arcade_kiosk/arcadekiosk.py)
+          tag="${GITHUB_REF_NAME#v}"
+          echo "kiosk $v, tag $tag"
+          if [ "$v" != "$tag" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match VERSION $v in arcadekiosk.py"
+            exit 1
+          fi
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+
+      - name: Run tests
+        run: bash tests/run_tests.sh
+
+      - name: Build the SD-card zip
+        run: |
+          rm -rf arcade_kiosk/__pycache__
+          mkdir -p arcade_kiosk/art
+          zip -qr "MisterOperator_v${VERSION}.zip" arcade_kiosk Scripts -x '*/__pycache__/*'
+          unzip -l "MisterOperator_v${VERSION}.zip" | tail -1
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes=$(git tag -l --format='%(contents)' "$GITHUB_REF_NAME")
+          [ -z "$notes" ] && notes="MisterOperator $VERSION"
+          gh release create "$GITHUB_REF_NAME" "MisterOperator_v${VERSION}.zip" \
+            --title "MisterOperator $VERSION" --notes "$notes"

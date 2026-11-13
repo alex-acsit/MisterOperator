@@ -55,6 +55,8 @@ import re
 import select
 import shutil
 import struct
+import subprocess
+import threading
 import textwrap
 import sys
 import time
@@ -64,7 +66,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from font8x8 import FONT  # noqa: E402
 
-VERSION = "2.0.1"
+VERSION = "2.1"
 
 CONFIG_PATH = os.path.join(HERE, "kiosk.ini")
 STATE_PATH = os.path.join(HERE, "state.json")
@@ -248,12 +250,11 @@ DEFAULTS = {
     "orientation": "all",
     "genres": "",
     "exclude_genres": "",
+    "hidden_genres": "",
     "hide_vertical": "0",
     "short_names": "1",
     "title": "ARCADE",
     "footer_play": "PRESS 1 TO PLAY",
-    "footer_genre": "2/3:GENRE",
-    "footer_letter": "4:A-Z",
     "art_dir": os.path.join(HERE, "art"),
     "menu_button": "",
     "menu_device": "",
@@ -284,6 +285,9 @@ DEFAULTS = {
     "ignore_devices": "",
     "log_inputs": "0",
     "remember_last": "1",
+    "update_repo": "alex-acsit/MisterOperator",
+    "update_token": "",
+    "auto_update": "0",
     "game_idle_exit_s": "300",
     "save_nvram": "once",
     "nvram_save_s": "0.3",
@@ -306,12 +310,21 @@ DEFAULTS = {
 }
 
 
+def ini_line(raw):
+    """A kiosk.ini line without its comment. ";" starts a comment anywhere; "#"
+    only at the start of a line, so colours like #RRGGBB work as values."""
+    line = raw.strip()
+    if line.startswith("#"):
+        return ""
+    return line.split(";", 1)[0].strip()
+
+
 def load_config(path=CONFIG_PATH):
     cfg = dict(DEFAULTS)
     try:
         with open(path) as f:
             for raw in f:
-                line = raw.split(";", 1)[0].split("#", 1)[0].strip()
+                line = ini_line(raw)
                 if not line or line.startswith("[") or "=" not in line:
                     continue
                 k, v = line.split("=", 1)
@@ -328,7 +341,7 @@ def set_config_value(key, value, path=CONFIG_PATH):
             lines = f.read().splitlines()
     except FileNotFoundError:
         lines = ["[kiosk]"]
-    pat = re.compile(r"^(\s*%s\s*=\s*)([^;#]*?)(\s*[;#].*)?$" % re.escape(key), re.I)
+    pat = re.compile(r"^(\s*%s\s*=\s*)([^;]*?)(\s*;.*)?$" % re.escape(key), re.I)
     for i, line in enumerate(lines):
         m = pat.match(line)
         if m:
@@ -486,6 +499,7 @@ def scan_games(cfg, use_cache=True):
     orient = orientation_filter(cfg)
     skipped = 0
     want_genres = _genre_set(cfg.get("genres", ""))
+    hidden_genres = _genre_set(cfg.get("hidden_genres", ""))
     drop_genres = _genre_set(cfg.get("exclude_genres", ""))
     genre_skipped = 0
     for path in files:
@@ -523,6 +537,9 @@ def scan_games(cfg, use_cache=True):
             genre_skipped += 1
             continue
         genre = parts[0] if parts else "Other"
+        if genre.lower() in hidden_genres:          # switched off in the operator menu
+            genre_skipped += 1
+            continue
         games.append({
             "path": path,
             "file": base[:-4],
@@ -538,7 +555,7 @@ def scan_games(cfg, use_cache=True):
             "vertical": vertical,
         })
 
-    if want_genres or drop_genres:
+    if want_genres or drop_genres or hidden_genres:
         log("genre filter: %d game%s hidden" % (genre_skipped, "" if genre_skipped == 1 else "s"))
     if orient != "all":
         log("orientation = %s: %d game%s hidden" % (orient, skipped, "" if skipped == 1 else "s"))
@@ -803,12 +820,10 @@ class LauncherView:
         apply_theme(cfg)
         self.portrait = screen_rotation(cfg) != 0
         if self.portrait:
-            # List across the full width, picture and details underneath,
-            # button hints on their own line at the bottom.
-            self.ROWS = 15
+            # List across the full width, picture and details underneath.
             self.LIST_W, self.NAME_CHARS = 232, 27
-            self.PANEL_X, self.PANEL_Y = 6, 215
-            self.INFO_X, self.INFO_Y, self.INFO_CHARS, self.INFO_LINES = 114, 217, 15, 6
+            self.PANEL_X, self.PANEL_Y = 6, 226
+            self.INFO_X, self.INFO_Y, self.INFO_CHARS, self.INFO_LINES = 114, 228, 15, 6
         else:
             # List on the left, picture and details on the right.
             self.LIST_W, self.NAME_CHARS = 204, 24
@@ -1028,21 +1043,12 @@ class LauncherView:
                 c.text(self.INFO_X, y, text, colr, BG)
                 y += 11
 
-        # footer: "press 1 to play" plus button hints (on their own line in TATE)
-        hints = [h for h in ((self.cfg["footer_genre"] if len(self.genres) > 1 else ""),
-                             self.cfg["footer_letter"]) if h.strip()]
-        hint = " ".join(hints)[:(c.w - 16) // 8]
+        # footer: "press 1 to play", and the version on the right
         fy = c.h - 14
-        if self.portrait:
-            c.fill(0, fy - 16, c.w, 1, LINE)
-            if hint:
-                c.text(8, fy - 12, hint, DIM, BG)
-            room = (c.w - 16) // 8
-        else:
-            c.fill(0, fy - 4, c.w, 1, LINE)
-            if hint:
-                c.text(c.w - 8 - len(hint) * 8, fy, hint, DIM, BG)
-            room = (c.w - 16 - (len(hint) * 8 + 8 if hint else 0)) // 8
+        c.fill(0, fy - 4, c.w, 1, LINE)
+        ver = "V" + VERSION
+        c.text(c.w - 8 - len(ver) * 8, fy, ver, DIM, BG)
+        room = (c.w - 16 - len(ver) * 8 - 8) // 8
         if blink_on:
             c.text(8, fy, self.cfg["footer_play"][:room], AMBER, BG)
 
@@ -1104,6 +1110,7 @@ class OperatorView:
         self.credits = 0
         self.lines = []              # rows of the current sub-page
         self.volume = read_volume()
+        self.release = None          # newer release found by UPDATE KIOSK
 
     # -- helpers ------------------------------------------------------------------
     @property
@@ -1163,6 +1170,9 @@ class OperatorView:
              lambda d: self.cycle("save_nvram", ["once", "always", "off"], d), None),
             ("SCREEN", self.screen_text, self.change_screen, None),
             ("THEME", lambda: (self.cfg.get("theme") or "green").upper(), self.change_theme, None),
+            ("SHOW GAMES", self.orientation_text,
+             lambda d: self.cycle("orientation", ["all", "horizontal", "vertical"], d), None),
+            ("GENRES", self.genres_text, None, lambda: self.open_page("genres")),
             ("GAME SETTINGS", lambda: (last["label"] if last else "NONE"), None,
              (lambda: k.operator_game_settings(last)) if last else None),
             ("PLAY COUNTS", lambda: ">", None, lambda: self.open_page("plays")),
@@ -1172,6 +1182,7 @@ class OperatorView:
             ("MISTER MENU", lambda: ">", None, k.operator_stock_menu),
             ("MISTER MAIN", self.main_text, None,
              k.install_kiosk_main if k.main_status() in ("STOCK", "OLD") and os.path.exists(KIOSK_MAIN) else None),
+            ("UPDATE KIOSK", self.update_text, None, self.update_from_menu),
             ("REBOOT", lambda: "", None, k.operator_reboot),
         ]
         return out
@@ -1215,6 +1226,74 @@ class OperatorView:
             return "OLD: 1 UPDATES"
         return st
 
+    def update_text(self):
+        if self.release:
+            return "INSTALL V" + self.release["version"]
+        return "V" + VERSION
+
+    def busy(self, text):
+        self.overlay = text
+        self.k.need_redraw = True
+        self.k.draw()
+
+    def update_from_menu(self):
+        """First press: check GitHub. If there's a newer version, the next press
+        installs it and the kiosk restarts into it."""
+        if self.release is None:
+            self.busy("CHECKING FOR\nUPDATES...")
+            try:
+                rel = latest_release(self.cfg)
+            except (UpdateError, OSError) as e:
+                log("update check failed: %s" % e)
+                self.overlay = None
+                self.show_toast("UPDATE CHECK FAILED\n(SEE LOG)", 3)
+                return
+            self.overlay = None
+            if version_tuple(rel["version"]) <= version_tuple(VERSION):
+                self.show_toast("UP TO DATE\nV" + VERSION, 2.5)
+                return
+            self.release = rel
+            self.show_toast("V%s AVAILABLE\nPRESS 1 TO INSTALL" % rel["version"], 3)
+            return
+        self.busy("INSTALLING\nV%s..." % self.release["version"])
+        try:
+            v = install_release(self.release, say=log)
+        except (UpdateError, OSError) as e:
+            log("update failed: %s" % e)
+            self.overlay = None
+            self.release = None
+            self.show_toast("UPDATE FAILED\nNOTHING CHANGED", 3)
+            return
+        self.overlay = "UPDATED TO V%s\nRESTARTING..." % v
+        self.k.draw()
+        self.k.pending_restart = True
+
+    def orientation_text(self):
+        return {"all": "ALL", "horizontal": "YOKO ONLY", "vertical": "TATE ONLY"}[orientation_filter(self.cfg)]
+
+    def hidden(self):
+        return _genre_set(self.cfg.get("hidden_genres", ""))
+
+    def genres_text(self):
+        n = len(self.hidden())
+        return "ALL >" if not n else "%d HIDDEN >" % n
+
+    def toggle_genre(self, name):
+        hidden = self.hidden()
+        all_names = {g.lower(): g for g in self.k.genre_counts()}
+        if name == "__on__":
+            hidden = set()
+        elif name == "__off__":
+            hidden = set(all_names)
+        elif name.lower() in hidden:
+            hidden.discard(name.lower())
+        else:
+            hidden.add(name.lower())
+        # keep the names as the games spell them
+        self.set("hidden_genres", ", ".join(sorted(all_names.get(h, h) for h in hidden)))
+        if hidden and hidden >= set(all_names):
+            self.show_toast("ALL GENRES HIDDEN:\nNO GAMES WILL SHOW", 2.5)
+
     def screen_text(self):
         return {0: "YOKO", 90: "TATE CW", 270: "TATE CCW"}[screen_rotation(self.cfg)]
 
@@ -1248,6 +1327,13 @@ class OperatorView:
                     self.lines.append((g["label"], g))
             if not self.lines:
                 self.lines = [("NO SAVED NVRAM", None)]
+        elif page == "genres":
+            counts = self.k.genre_counts()
+            hidden = self.hidden()
+            self.lines = [("SHOW ALL", "__on__"), ("HIDE ALL", "__off__")]
+            for name in sorted(counts, key=str.lower):
+                mark = "[ ]" if name.lower() in hidden else "[X]"
+                self.lines.append(("%s %-18s %4d" % (mark, name.upper()[:18], counts[name]), name))
         elif page == "log":
             try:
                 with open(LOG_PATH, errors="replace") as f:
@@ -1302,6 +1388,12 @@ class OperatorView:
                         return
                 self.confirm = None
                 action()
+        elif self.page == "genres":
+            text, name = self.lines[self.sel]
+            sel = self.sel
+            self.toggle_genre(name)
+            self.open_page("genres")
+            self.sel = sel
         elif self.page == "nvram":
             text, g = self.lines[self.sel]
             if g is None:
@@ -1318,7 +1410,8 @@ class OperatorView:
     # -- drawing ------------------------------------------------------------------
     def draw(self, c, blink_on=True):
         c.fill(0, 0, c.w, c.h, BG)
-        title = {"main": "OPERATOR", "plays": "PLAYS", "nvram": "NVRAM", "log": "LOG"}[self.page]
+        title = {"main": "OPERATOR", "plays": "PLAYS", "nvram": "NVRAM", "log": "LOG",
+                 "genres": "GENRES"}[self.page]
         c.text(8, 5, title, AMBER, BG, scale=2)
         tag = "UNLOCKED"
         c.text(c.w - 8 - len(tag) * 8, 10, tag, ACCENT, BG)
@@ -1373,7 +1466,7 @@ class OperatorView:
                     break
                 text, ref = self.lines[i]
                 y = self.LIST_Y + r * self.ROW_H
-                selected = i == self.sel and self.page == "nvram" and ref is not None
+                selected = i == self.sel and self.page in ("nvram", "genres") and ref is not None
                 if self.page == "nvram" and i == self.sel and ref is not None and self.confirm == ref["path"]:
                     text = "PRESS 1 AGAIN TO RESET"
                 if selected:
@@ -1398,6 +1491,8 @@ class OperatorView:
             hint1, hint2 = "1:SELECT  </>:CHANGE", "2:BACK  HOLD OP:LOCK"
         elif self.page == "nvram":
             hint1, hint2 = "1:RESET THIS GAME", "2:BACK"
+        elif self.page == "genres":
+            hint1, hint2 = "1:SHOW/HIDE", "2:BACK"
         else:
             hint1, hint2 = "UP/DOWN:SCROLL", "2:BACK"
         c.text(8, fy - 12, hint1[:chars], DIM, BG)
@@ -2106,6 +2201,8 @@ class Kiosk:
         self.current_game = None
         self.opview = None              # operator menu, while it's open
         self.flag_on = None             # is KIOSK_FLAG present
+        self.pending_restart = False    # restart (after an update) once nobody's playing
+        self.restarting = False
         self.op_activity = 0
         self.coin_queue = []            # coins waiting to go into the game just started
         self.coin_next = 0
@@ -2686,6 +2783,14 @@ class Kiosk:
                 return g
         return None
 
+    def genre_counts(self):
+        """Main genre -> number of games, before the operator menu's genre switches."""
+        cfg = dict(self.cfg, hidden_genres="")
+        counts = {}
+        for g in scan_games(cfg):
+            counts[g["genre"]] = counts.get(g["genre"], 0) + 1
+        return counts
+
     def rescan_games(self):
         games = scan_games(self.cfg, use_cache=False)
         keep = self.view
@@ -2764,6 +2869,23 @@ class Kiosk:
         save_state(self.state)
         log("installed the kiosk MiSTer main program; rebooting")
         self.operator_reboot()
+
+    def auto_update_loop(self, first_wait=60, every=24 * 3600):
+        """auto_update = 1: check for a new release after boot and once a day.
+        A new version is installed in the background and takes over the next
+        time nobody's playing."""
+        time.sleep(first_wait)                   # let the network come up
+        while True:
+            try:
+                rel = latest_release(self.cfg)
+                if version_tuple(rel["version"]) > version_tuple(VERSION):
+                    log("auto update: %s available" % rel["version"])
+                    install_release(rel, say=log)
+                    self.pending_restart = True
+                    return
+            except (UpdateError, OSError) as e:
+                log("auto update: %s" % e)
+            time.sleep(every)
 
     def check_new_main(self, wait=90):
         """Safety net after installing the kiosk build: if the MiSTer main program
@@ -3174,6 +3296,8 @@ class Kiosk:
             self.cfg = load_config()
             self.reload_buttons()
             self.update_setup_overlay()
+        elif cmd == "restart":
+            self.pending_restart = True
         elif cmd == "rescan" and self.mode == S_LAUNCHER:
             self.enter_launcher()
 
@@ -3255,6 +3379,8 @@ class Kiosk:
             set_kiosk_flag(True)
             self.flag_on = True
         self.check_new_main()
+        if flag(self.cfg, "auto_update"):
+            threading.Thread(target=self.auto_update_loop, daemon=True).start()
         while not os.path.exists(MISTER_CMD):
             time.sleep(1)
         if not os.path.exists("/dev/uinput"):
@@ -3339,6 +3465,11 @@ class Kiosk:
 
             self.tick_coins(now)
             self.sync_flag()
+            if self.pending_restart and self.mode in (S_LAUNCHER, S_OPERATOR, S_WAIT,
+                                                      S_RETURNING, S_ATTRACT):
+                log("restarting the kiosk (new version)")
+                self.restarting = True
+                raise SystemExit(0)              # run.sh starts the new version
 
             # Nobody playing: quit the game back to the list.
             idle_exit = float(self.cfg["game_idle_exit_s"])
@@ -3395,6 +3526,305 @@ class Kiosk:
 
 
 # ---------------------------------------------------------------------------
+# Updating from GitHub
+# ---------------------------------------------------------------------------
+# Releases are published by the repo's GitHub Actions: each tagged version gets
+# a release with the SD-card zip (arcade_kiosk/ + Scripts/) attached. The kiosk
+# downloads the latest one, keeps the operator's settings and data, backs up the
+# version it replaces, and restarts itself.
+
+UPDATE_TMP = "/tmp/arcadekiosk_update"
+BACKUP_DIR = os.path.join(HERE, "backup")
+SCRIPTS_DIR = "/media/fat/Scripts"
+# kept from the installed copy, never overwritten by an update
+KEEP_FILES = {"kiosk.ini", "state.json", "games_cache.json", "games_cache.json.tmp", "state.json.tmp"}
+KEEP_DIRS = {"art", "backup", "map_backup"}
+# settings that no longer exist; dropped when kiosk.ini is merged
+RETIRED_KEYS = {"footer_genre", "footer_letter", "hide_vertical"}
+CA_FILES = ("/etc/ssl/certs/cacert.pem", "/etc/ssl/certs/ca-certificates.crt",
+            "/etc/ssl/cert.pem", "/etc/pki/tls/certs/ca-bundle.crt")
+
+
+class UpdateError(Exception):
+    pass
+
+
+def version_tuple(v):
+    nums = re.findall(r"\d+", str(v))
+    return tuple(int(n) for n in nums[:4]) or (0,)
+
+
+def http_get(url, headers=None, timeout=60):
+    """Fetch a URL. Uses curl (as MiSTer's own updaters do) and falls back to
+    Python's urllib."""
+    headers = dict(headers or {})
+    headers.setdefault("User-Agent", "MisterOperator-updater")
+    curl = shutil.which("curl")
+    if curl:
+        cmd = [curl, "-fsSL", "--max-time", str(timeout), "--retry", "2"]
+        for ca in CA_FILES:
+            if os.path.exists(ca):
+                cmd += ["--cacert", ca]
+                break
+        for k, v in headers.items():
+            cmd += ["-H", "%s: %s" % (k, v)]
+        r = subprocess.run(cmd + [url], capture_output=True)
+        if r.returncode == 0:
+            return r.stdout
+        err = r.stderr.decode("utf-8", "replace").strip()
+        if "(22)" in err:                                    # HTTP error from the server
+            raise UpdateError(err.splitlines()[-1] if err else "HTTP error")
+    import ssl
+    import urllib.request
+    ctx = None
+    for ca in CA_FILES:
+        if os.path.exists(ca):
+            ctx = ssl.create_default_context(cafile=ca)
+            break
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            return resp.read()
+    except Exception as e:
+        raise UpdateError(str(e))
+
+
+def latest_release(cfg):
+    """{'version', 'tag', 'url', 'headers'} for the newest release's SD zip."""
+    repo = cfg.get("update_repo", "").strip()
+    if not repo:
+        raise UpdateError("update_repo is empty in kiosk.ini")
+    headers = {"Accept": "application/vnd.github+json"}
+    token = cfg.get("update_token", "").strip()
+    if token:
+        headers["Authorization"] = "Bearer " + token
+    data = http_get("https://api.github.com/repos/%s/releases/latest" % repo, headers, timeout=30)
+    try:
+        rel = json.loads(data.decode("utf-8"))
+    except ValueError:
+        raise UpdateError("unexpected answer from GitHub")
+    if "tag_name" not in rel:
+        raise UpdateError(rel.get("message", "no releases found"))
+    for a in rel.get("assets", []):
+        name = a.get("name", "")
+        if name.lower().endswith(".zip") and name.lower().startswith("misteroperator"):
+            if token:      # private repo: the API URL with the token
+                url, hdr = a["url"], dict(headers, Accept="application/octet-stream")
+            else:
+                url, hdr = a["browser_download_url"], {}
+            return {"version": rel["tag_name"].lstrip("vV"), "tag": rel["tag_name"],
+                    "url": url, "headers": hdr, "notes": rel.get("body") or ""}
+    raise UpdateError("release %s has no MisterOperator zip" % rel["tag_name"])
+
+
+def merge_ini(new_text, old_text):
+    """New kiosk.ini (with its comments and any new settings), carrying over every
+    value the operator had set."""
+    old = {}
+    order = []
+    for raw in old_text.splitlines():
+        line = ini_line(raw)
+        if "=" in line and not line.startswith("["):
+            k, v = line.split("=", 1)
+            k = k.strip().lower()
+            if k not in old:
+                order.append(k)
+            old[k] = v.strip()
+    lines = new_text.splitlines()
+    seen = set()
+    for i, raw in enumerate(lines):
+        m = re.match(r"^(\s*)([A-Za-z0-9_]+)(\s*=\s*)([^;]*?)(\s*;.*)?$", raw)
+        if not m or m.group(2).lower() not in old:
+            continue
+        k = m.group(2).lower()
+        seen.add(k)
+        comment = m.group(5) or ""
+        lines[i] = "%s%s%s%s%s" % (m.group(1), m.group(2), m.group(3), old[k],
+                                   ("   " + comment.strip()) if comment else "")
+    extra = [k for k in order if k not in seen and k not in RETIRED_KEYS]
+    if extra:
+        lines += ["", "; ---- kept from your previous kiosk.ini ----"]
+        lines += ["%s = %s" % (k, old[k]) for k in extra]
+    return "\n".join(lines) + "\n"
+
+
+def copy_tree_files(src, dst, skip_files=(), skip_dirs=()):
+    """Copy files from src into dst, replacing each one atomically."""
+    for root, dirs, files in os.walk(src):
+        rel = os.path.relpath(root, src)
+        if rel == ".":
+            dirs[:] = [d for d in dirs if d not in skip_dirs and d != "__pycache__"]
+        else:
+            dirs[:] = [d for d in dirs if d != "__pycache__"]
+        os.makedirs(os.path.join(dst, rel), exist_ok=True)
+        for f in files:
+            if rel == "." and f in skip_files:
+                continue
+            s_, d_ = os.path.join(root, f), os.path.join(dst, rel, f)
+            tmp = d_ + ".new"
+            shutil.copy2(s_, tmp)
+            if f.endswith(".sh") or f in ("arcadekiosk.py", "MiSTer_kiosk") or f.endswith(".py"):
+                os.chmod(tmp, 0o755)
+            os.replace(tmp, d_)
+
+
+def backup_current(dest_root=None):
+    """Copy the running version's program files to backup/<version>/."""
+    dest_root = dest_root or BACKUP_DIR
+    dest = os.path.join(dest_root, VERSION)
+    if os.path.exists(dest):
+        shutil.rmtree(dest)
+    os.makedirs(dest)
+    for name in os.listdir(HERE):
+        p = os.path.join(HERE, name)
+        if name in KEEP_FILES or name in KEEP_DIRS or name == "__pycache__":
+            continue
+        if os.path.isdir(p):
+            shutil.copytree(p, os.path.join(dest, name), ignore=shutil.ignore_patterns("__pycache__"))
+        else:
+            shutil.copy2(p, os.path.join(dest, name))
+    if os.path.exists(os.path.join(HERE, "kiosk.ini")):      # settings as they were
+        shutil.copy2(os.path.join(HERE, "kiosk.ini"), os.path.join(dest, "kiosk.ini"))
+    # keep the three most recent backups
+    olds = sorted(os.listdir(dest_root), key=version_tuple)
+    for v in olds[:-3]:
+        shutil.rmtree(os.path.join(dest_root, v), ignore_errors=True)
+    return dest
+
+
+def install_release(rel, say=print):
+    """Download and install a release. Returns the new version string."""
+    import zipfile
+    if os.path.exists(UPDATE_TMP):
+        shutil.rmtree(UPDATE_TMP)
+    os.makedirs(UPDATE_TMP)
+    say("Downloading %s..." % rel["tag"])
+    data = http_get(rel["url"], rel["headers"], timeout=300)
+    pkg = os.path.join(UPDATE_TMP, "update.zip")
+    with open(pkg, "wb") as f:
+        f.write(data)
+    try:
+        z = zipfile.ZipFile(pkg)
+        bad = z.testzip()
+    except zipfile.BadZipFile:
+        raise UpdateError("download is not a zip file")
+    if bad:
+        raise UpdateError("download is damaged (%s)" % bad)
+    names = z.namelist()
+    prefix = ""
+    if "arcade_kiosk/arcadekiosk.py" not in names:   # zip with a top folder
+        hit = [n for n in names if n.endswith("/arcade_kiosk/arcadekiosk.py")]
+        if not hit:
+            raise UpdateError("zip doesn't contain arcade_kiosk/arcadekiosk.py")
+        prefix = hit[0][:-len("arcade_kiosk/arcadekiosk.py")]
+    new = os.path.join(UPDATE_TMP, "new")
+    for n in names:
+        if not n.startswith(prefix) or ".." in n.split("/") or n.startswith("/"):
+            continue
+        rel_name = n[len(prefix):]
+        if not rel_name or n.endswith("/"):
+            continue
+        target = os.path.join(new, rel_name)
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with z.open(n) as src, open(target, "wb") as dst:
+            shutil.copyfileobj(src, dst)
+    new_kiosk = os.path.join(new, "arcade_kiosk")
+    main_py = os.path.join(new_kiosk, "arcadekiosk.py")
+    # sanity checks before touching the installed copy
+    import py_compile
+    try:
+        py_compile.compile(main_py, doraise=True, cfile=os.path.join(UPDATE_TMP, "check.pyc"))
+    except py_compile.PyCompileError as e:
+        raise UpdateError("new version doesn't compile: %s" % e)
+    with open(main_py) as f:
+        m = re.search(r'^VERSION = "([^"]+)"', f.read(), re.M)
+    new_version = m.group(1) if m else rel["version"]
+
+    say("Backing up %s..." % VERSION)
+    backup_current()
+    say("Installing %s..." % new_version)
+    copy_tree_files(new_kiosk, HERE, skip_files=KEEP_FILES, skip_dirs=KEEP_DIRS)
+    # merge settings
+    new_ini = os.path.join(new_kiosk, "kiosk.ini")
+    cur_ini = os.path.join(HERE, "kiosk.ini")
+    if os.path.exists(new_ini):
+        with open(new_ini) as f:
+            template = f.read()
+        old_text = open(cur_ini).read() if os.path.exists(cur_ini) else ""
+        merged = merge_ini(template, old_text)
+        with open(cur_ini + ".tmp", "w") as f:
+            f.write(merged)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(cur_ini + ".tmp", cur_ini)
+    # new box art the operator doesn't have yet
+    new_art = os.path.join(new_kiosk, "art")
+    if os.path.isdir(new_art):
+        os.makedirs(os.path.join(HERE, "art"), exist_ok=True)
+        for f in os.listdir(new_art):
+            if not os.path.exists(os.path.join(HERE, "art", f)):
+                shutil.copy2(os.path.join(new_art, f), os.path.join(HERE, "art", f))
+    # our scripts in the MiSTer Scripts menu
+    new_scripts = os.path.join(new, "Scripts")
+    if os.path.isdir(new_scripts) and os.path.isdir(SCRIPTS_DIR):
+        for f in os.listdir(new_scripts):
+            if f.endswith(".sh"):
+                shutil.copy2(os.path.join(new_scripts, f), os.path.join(SCRIPTS_DIR, f))
+    os.system("sync")
+    shutil.rmtree(UPDATE_TMP, ignore_errors=True)
+    log("updated %s -> %s" % (VERSION, new_version))
+    return new_version
+
+
+def rollback(say=print):
+    if not os.path.isdir(BACKUP_DIR) or not os.listdir(BACKUP_DIR):
+        raise UpdateError("no backups in %s" % BACKUP_DIR)
+    versions = sorted(os.listdir(BACKUP_DIR), key=version_tuple)
+    older = [v for v in versions if version_tuple(v) < version_tuple(VERSION)] or versions
+    v = older[-1]
+    src = os.path.join(BACKUP_DIR, v)
+    say("Restoring %s..." % v)
+    copy_tree_files(src, HERE, skip_files=KEEP_FILES, skip_dirs=KEEP_DIRS)
+    if os.path.exists(os.path.join(src, "kiosk.ini")):
+        shutil.copy2(os.path.join(src, "kiosk.ini"), os.path.join(HERE, "kiosk.ini"))
+    os.system("sync")
+    log("rolled back %s -> %s" % (VERSION, v))
+    return v
+
+
+def update_command(argv):
+    """--update / --check / --rollback from the command line or the Scripts menu."""
+    cfg = load_config()
+    if "--rollback" in argv:
+        v = rollback()
+        print("Restored %s. Restarting the kiosk..." % v)
+        send_control("restart")
+        return 0
+    try:
+        rel = latest_release(cfg)
+    except UpdateError as e:
+        print("Couldn't check for updates: %s" % e)
+        return 1
+    print("Installed: %s   Latest: %s" % (VERSION, rel["version"]))
+    if "--check" in argv:
+        return 0
+    if version_tuple(rel["version"]) <= version_tuple(VERSION) and "--force" not in argv:
+        print("Already up to date.")
+        return 0
+    try:
+        v = install_release(rel)
+    except (UpdateError, OSError) as e:
+        print("Update failed, nothing changed: %s" % e)
+        log("update failed: %s" % e)
+        return 1
+    print("Updated to %s. Restarting the kiosk..." % v)
+    if os.path.exists(os.path.join(HERE, "MiSTer_kiosk")):
+        print("If the operator menu shows 'MiSTer main: OLD', install the new main program there.")
+    send_control("restart")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Command line
 # ---------------------------------------------------------------------------
 
@@ -3442,6 +3872,8 @@ def demo_games():
 
 
 def main(argv):
+    if any(a in argv for a in ("--update", "--check", "--rollback")):
+        sys.exit(update_command(argv))
     if "--lock" in argv:
         return send_control("lock")
     if "--unlock" in argv:
@@ -3567,8 +3999,14 @@ def main(argv):
                 pass
         if kiosk.keys_dev:
             kiosk.keys_dev.close()
-        kiosk.release_framebuffer()
-        set_kiosk_flag(False)                   # never leave the MiSTer menu blocked
+        if kiosk.restarting:
+            # Planned restart after an update: keep the screen and the flag, the
+            # new version takes over in a couple of seconds.
+            if kiosk.fb:
+                kiosk.fb.close()
+        else:
+            kiosk.release_framebuffer()
+            set_kiosk_flag(False)               # never leave the MiSTer menu blocked
         try:
             os.unlink(PID_PATH)
         except OSError:
