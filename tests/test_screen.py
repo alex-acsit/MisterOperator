@@ -1,6 +1,7 @@
 import sys
 sys.path.insert(0, sys.argv[1]); import arcadekiosk as K
-T = sys.argv[2]; K.LOG_PATH = T + "/slog.txt"
+T = sys.argv[2]
+K.KIOSK_FLAG = T + "/kiosk_active"; K.FEATURES_PATH = T + "/MiSTer_features"; K.LOG_PATH = T + "/slog.txt"
 fails = 0
 def check(c, m):
     global fails; print(("PASS " if c else "FAIL ") + m); fails += 0 if c else 1

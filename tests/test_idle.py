@@ -1,6 +1,7 @@
 import sys, time
 sys.path.insert(0, sys.argv[1]); import arcadekiosk as K
 T = sys.argv[2]
+K.KIOSK_FLAG = T + "/kiosk_active"; K.FEATURES_PATH = T + "/MiSTer_features"
 K.CONFIG_PATH = T + "/kiosk/kiosk.ini"; K.STATE_PATH = T + "/state.json"; K.CACHE_PATH = T + "/cache.json"
 K.LOG_PATH = T + "/log.txt"; K.STATUS_PATH = T + "/status.json"; K.CTL_PATH = T + "/ctl"
 K.set_config_value("arcade_dir", T + "/_Arcade")

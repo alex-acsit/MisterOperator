@@ -9,7 +9,7 @@ Players get a simple game list and one button to get back to it. The operator ge
 hidden button that opens an operator menu in the same look, for servicing. Nothing
 else on the MiSTer is reachable while the cabinet is locked.
 
-Current version: **1.9**, for 15 kHz CRTs and USB arcade encoders. It also works on HDMI.
+Current version: **2.0**, for 15 kHz CRTs and USB arcade encoders. It also works on HDMI.
 
 ## Features
 
@@ -92,6 +92,7 @@ main page that locks the cabinet, as does holding OPERATOR again. Changes are sa
 | Reset NVRAM | Wipe one game's saved settings and high scores (asks first) |
 | Rescan games / View log | Pick up new `.mra` files; read the kiosk log |
 | MiSTer menu | The stock MiSTer menu, for anything else. Hold OPERATOR to come back |
+| MiSTer main | Whether the kiosk build of the MiSTer main program is running; installs it if not (see below) |
 | Reboot | Restart the MiSTer (asks first) |
 
 `operator_menu = 0` brings back the old behaviour, where OPERATOR goes straight to the
@@ -183,6 +184,16 @@ menu in between.
 `/media/fat/arcade_kiosk/art/`. Games without art show their initial.
 
 </details>
+
+## Kiosk build of the MiSTer main program (optional)
+
+With stock MiSTer, its own menu shows for a moment at boot and after each game, and
+saving a game's NVRAM briefly flashes it open. The kiosk build of the MiSTer main program
+removes all of that: the MiSTer goes straight to the kiosk, saves NVRAM silently on every
+quit, and its menu can't be opened at all while the cabinet is locked. Install it from
+the operator menu (**MiSTer main**). The kiosk keeps the original, rolls back by itself if
+the new one doesn't start, and keeps working if an update puts the stock one back. See
+[`fork/`](fork/README.md) for details.
 
 ## Command line
 

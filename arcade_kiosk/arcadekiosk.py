@@ -53,6 +53,7 @@ from array import array
 import os
 import re
 import select
+import shutil
 import struct
 import textwrap
 import sys
@@ -63,7 +64,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from font8x8 import FONT  # noqa: E402
 
-VERSION = "1.9"
+VERSION = "2.0"
 
 CONFIG_PATH = os.path.join(HERE, "kiosk.ini")
 STATE_PATH = os.path.join(HERE, "state.json")
@@ -78,6 +79,11 @@ CORENAME_PATH = "/tmp/CORENAME"
 FB_PARAM_PATH = "/sys/module/MiSTer_fb/parameters/mode"
 MENU_RBF = "/media/fat/menu.rbf"
 VOLUME_PATH = "/media/fat/config/Volume.dat"
+# MisterOperator build of the MiSTer main program (github.com/alex-acsit/Main_MiSTer)
+KIOSK_FLAG = "/tmp/kiosk_active"          # while it exists, that build shows no MiSTer menu
+FEATURES_PATH = "/tmp/MiSTer_features"    # written by that build at start-up
+MAIN_BIN = "/media/fat/MiSTer"
+KIOSK_MAIN = os.path.join(HERE, "MiSTer_kiosk")
 VIRTUAL_PHYS = "arcadekiosk/"
 
 # ---------------------------------------------------------------------------
@@ -1161,6 +1167,8 @@ class OperatorView:
             ("RESCAN GAMES", lambda: "", None, self.rescan),
             ("VIEW LOG", lambda: ">", None, lambda: self.open_page("log")),
             ("MISTER MENU", lambda: ">", None, k.operator_stock_menu),
+            ("MISTER MAIN", self.main_text, None,
+             k.install_kiosk_main if k.main_status() == "STOCK" and os.path.exists(KIOSK_MAIN) else None),
             ("REBOOT", lambda: "", None, k.operator_reboot),
         ]
         return out
@@ -1195,6 +1203,12 @@ class OperatorView:
         self.k.adjust_credits(-len(self.k.state.get("coins", [])))
         self.credits = 0
         self.show_toast("CREDITS CLEARED")
+
+    def main_text(self):
+        st = self.k.main_status()
+        if st == "STOCK" and os.path.exists(KIOSK_MAIN):
+            return "STOCK: 1 INSTALLS"
+        return st
 
     def screen_text(self):
         return {0: "YOKO", 90: "TATE CW", 270: "TATE CCW"}[screen_rotation(self.cfg)]
@@ -1274,7 +1288,7 @@ class OperatorView:
             if action is None and change:
                 change(1)
             elif action:
-                if label in ("REBOOT", "RESET NVRAM") or label == "CREDITS":
+                if label in ("REBOOT", "RESET NVRAM", "MISTER MAIN") or label == "CREDITS":
                     if label == "CREDITS" and self.credits == 0:
                         return
                     if self.confirm != label:
@@ -1684,6 +1698,26 @@ def core_stamp():
         return None
 
 
+def main_features():
+    """Extra features of the running MiSTer main program (empty for stock MiSTer)."""
+    try:
+        with open(FEATURES_PATH) as f:
+            return {w.strip() for w in f if w.strip()}
+    except OSError:
+        return set()
+
+
+def set_kiosk_flag(on):
+    try:
+        if on:
+            with open(KIOSK_FLAG, "w") as f:
+                f.write("%d\n" % os.getpid())
+        elif os.path.exists(KIOSK_FLAG):
+            os.remove(KIOSK_FLAG)
+    except OSError as e:
+        log("kiosk flag: %s" % e)
+
+
 def core_name():
     try:
         with open(CORENAME_PATH, errors="replace") as f:
@@ -2039,6 +2073,7 @@ class Kiosk:
         self.ungrabbed = {}             # path -> (first seen, carries menu/operator button)
         self.current_game = None
         self.opview = None              # operator menu, while it's open
+        self.flag_on = None             # is KIOSK_FLAG present
         self.op_activity = 0
         self.coin_queue = []            # coins waiting to go into the game just started
         self.coin_next = 0
@@ -2463,6 +2498,13 @@ class Kiosk:
             return
         if core_name().upper() in ("", "MENU"):
             return
+        if "save_nvram" in main_features():
+            # Kiosk build of the MiSTer main program: save directly, nothing on
+            # screen, so it can happen on every quit.
+            log("nvram: saving for %s (command)" % g["label"])
+            mister_cmd("save_nvram", quiet=True)
+            time.sleep(0.2)
+            return
         played = time.monotonic() - self.game_started
         good = self.state.setdefault("nvram_good", [])
         if mode == "once" and g["path"] in good and os.path.exists(self.nvram_file(g)):
@@ -2635,10 +2677,73 @@ class Kiosk:
     def operator_lock(self):
         self.set_locked(True)
 
+    def sync_flag(self):
+        """The kiosk build of the MiSTer main program hides its menu while the flag
+        exists, so it's there whenever the kiosk owns the screen and gone while
+        the operator is using the stock MiSTer menu."""
+        want = self.mode != S_UNLOCKED
+        if want != self.flag_on:
+            set_kiosk_flag(want)
+            self.flag_on = want
+
+    def main_status(self):
+        return "KIOSK" if "kiosk_active" in main_features() else "STOCK"
+
+    def install_kiosk_main(self):
+        """Copy the kiosk build of the MiSTer main program over /media/fat/MiSTer
+        (keeping the original as MiSTer.stock) and reboot."""
+        if not os.path.exists(KIOSK_MAIN):
+            self.opview.show_toast("NO MiSTer_kiosk FILE\nIN THE KIOSK FOLDER", 3)
+            return
+        try:
+            if os.path.exists(MAIN_BIN) and not os.path.exists(MAIN_BIN + ".stock"):
+                shutil.copy2(MAIN_BIN, MAIN_BIN + ".stock")
+            tmp = MAIN_BIN + ".new"
+            shutil.copy2(KIOSK_MAIN, tmp)
+            os.chmod(tmp, 0o755)
+            os.replace(tmp, MAIN_BIN)
+        except OSError as e:
+            log("install kiosk main failed: %s" % e)
+            self.opview.show_toast("INSTALL FAILED", 3)
+            return
+        # On the next boot, check_new_main() puts the stock one back if this one
+        # never starts.
+        self.state["main_install_check"] = True
+        save_state(self.state)
+        log("installed the kiosk MiSTer main program; rebooting")
+        self.operator_reboot()
+
+    def check_new_main(self, wait=90):
+        """Safety net after installing the kiosk build: if the MiSTer main program
+        never starts taking commands, restore MiSTer.stock and reboot."""
+        if not self.state.get("main_install_check"):
+            return True
+        end = time.monotonic() + wait
+        while time.monotonic() < end:
+            if mister_ready():
+                log("new MiSTer main program is running")
+                self.state.pop("main_install_check", None)
+                save_state(self.state)
+                return True
+            time.sleep(0.5)
+        log("new MiSTer main program didn't start in %d s; restoring MiSTer.stock" % wait)
+        self.state.pop("main_install_check", None)
+        save_state(self.state)
+        try:
+            if os.path.exists(MAIN_BIN + ".stock"):
+                shutil.copy2(MAIN_BIN + ".stock", MAIN_BIN + ".new")
+                os.replace(MAIN_BIN + ".new", MAIN_BIN)
+                os.system("sync; reboot")
+        except OSError as e:
+            log("restore failed: %s" % e)
+        return False
+
     def operator_game_settings(self, g):
         """Run a game unlocked, so MENU opens the MiSTer menu for its DIP switches
         and options. Holding OPERATOR comes back to the operator menu."""
         log("operator menu: game settings for %s" % g["label"])
+        self.mode = S_UNLOCKED
+        self.sync_flag()                        # before the new main program starts
         self.release_framebuffer()
         self.opview = None
         self.current_game = g
@@ -2650,6 +2755,8 @@ class Kiosk:
         log("operator menu: stock MiSTer menu")
         if self.mode == S_GAME:
             self.save_nvram()
+        self.mode = S_UNLOCKED
+        self.sync_flag()                        # before the new main program starts
         self.state["locked"] = False
         save_state(self.state)
         self.release_framebuffer()
@@ -2717,8 +2824,9 @@ class Kiosk:
                 self.save_nvram()
             self.current_game = None
             set_tty_mode(KD_TEXT)
-            mister_cmd("load_core %s" % MENU_RBF)
             self.mode = S_UNLOCKED
+            self.sync_flag()
+            mister_cmd("load_core %s" % MENU_RBF)
         self.write_status()
 
     def release_virtual_keys(self):
@@ -3089,6 +3197,10 @@ class Kiosk:
 
     def run(self):
         log("Arcade Kiosk %s starting (locked=%s)" % (VERSION, self.state["locked"]))
+        if self.state["locked"] or flag(self.cfg, "operator_menu"):
+            set_kiosk_flag(True)
+            self.flag_on = True
+        self.check_new_main()
         while not os.path.exists(MISTER_CMD):
             time.sleep(1)
         if not os.path.exists("/dev/uinput"):
@@ -3172,6 +3284,7 @@ class Kiosk:
                     self.go_menu()
 
             self.tick_coins(now)
+            self.sync_flag()
 
             # Nobody playing: quit the game back to the list.
             idle_exit = float(self.cfg["game_idle_exit_s"])
@@ -3401,6 +3514,7 @@ def main(argv):
         if kiosk.keys_dev:
             kiosk.keys_dev.close()
         kiosk.release_framebuffer()
+        set_kiosk_flag(False)                   # never leave the MiSTer menu blocked
         try:
             os.unlink(PID_PATH)
         except OSError:

@@ -1,0 +1,332 @@
+From c0c7b065e9cab4f5c3fccb4f920a42342650cbc1 Mon Sep 17 00:00:00 2001
+From: alex-acsit <alex@acsit.com.au>
+Date: Fri, 13 Nov 2026 17:22:41 +1100
+Subject: [PATCH] MisterOperator kiosk support
+
+While /tmp/kiosk_active exists (created by the MisterOperator kiosk while
+it owns the screen):
+- the menu core goes straight to the Linux framebuffer instead of showing
+  the MiSTer menu (no stock-menu flash at boot or after a game);
+- the OSD can't be opened and OSD hotkeys are ignored;
+- volume changes don't pop up the OSD volume bar.
+Without the file, behaviour is unchanged.
+
+Adds a save_nvram MiSTer_cmd command that saves an arcade core's NVRAM
+without opening the OSD, and lists these features in /tmp/MiSTer_features
+at start-up. Adds a GitHub Actions workflow that builds with the official
+ARM GCC 10.2 toolchain.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01BiX7tJ3KvN3UYXpZzAPMyh
+---
+ .github/workflows/build.yml | 44 ++++++++++++++++++++++++++++++++
+ README_KIOSK.md             | 50 +++++++++++++++++++++++++++++++++++++
+ audio.cpp                   |  4 +++
+ input.cpp                   |  5 ++++
+ kiosk.cpp                   | 43 +++++++++++++++++++++++++++++++
+ kiosk.h                     | 26 +++++++++++++++++++
+ main.cpp                    |  2 ++
+ menu.cpp                    | 19 ++++++++++++--
+ 8 files changed, 191 insertions(+), 2 deletions(-)
+ create mode 100644 .github/workflows/build.yml
+ create mode 100644 README_KIOSK.md
+ create mode 100644 kiosk.cpp
+ create mode 100644 kiosk.h
+
+diff --git a/.github/workflows/build.yml b/.github/workflows/build.yml
+new file mode 100644
+index 0000000..3cf534f
+--- /dev/null
++++ b/.github/workflows/build.yml
+@@ -0,0 +1,44 @@
++# Builds the MiSTer main binary with the official ARM GCC 10.2 toolchain, as
++# upstream Main_MiSTer does, and attaches it to the run (and to a release when
++# a tag like v1.0-kiosk is pushed).
++name: Build MiSTer
++
++on:
++  push:
++    branches: [master, kiosk]
++    tags: ["v*"]
++  pull_request:
++  workflow_dispatch:
++
++permissions:
++  contents: write
++
++jobs:
++  build:
++    runs-on: ubuntu-22.04
++    steps:
++      - uses: actions/checkout@v4
++
++      - name: Cache ARM toolchain
++        uses: actions/cache@v4
++        with:
++          path: gcc-arm-10.2-2020.11-x86_64-arm-none-linux-gnueabihf
++          key: gcc-arm-10.2-2020.11
++
++      - name: Build
++        run: |
++          set -e
++          source setup_default_toolchain.sh
++          make -j"$(nproc)"
++          ls -l bin/MiSTer
++
++      - uses: actions/upload-artifact@v4
++        with:
++          name: MiSTer
++          path: bin/MiSTer
++
++      - name: Release
++        if: startsWith(github.ref, 'refs/tags/')
++        uses: softprops/action-gh-release@v2
++        with:
++          files: bin/MiSTer
+diff --git a/README_KIOSK.md b/README_KIOSK.md
+new file mode 100644
+index 0000000..50fb42e
+--- /dev/null
++++ b/README_KIOSK.md
+@@ -0,0 +1,50 @@
++# Main_MiSTer for MisterOperator
++
++This is [Main_MiSTer](https://github.com/MiSTer-devel/Main_MiSTer) with a small patch
++for the [MisterOperator](https://github.com/alex-acsit/MisterOperator) arcade kiosk.
++It changes nothing unless the kiosk is running.
++
++While the kiosk is in charge, it creates `/tmp/kiosk_active`, and this build then:
++
++- **never shows the MiSTer menu.** The menu core goes straight to the screen the kiosk
++  draws on, at boot and after every game, with no flash of the stock menu.
++- **can't open the OSD,** and the OSD hotkeys (F12, F1, F9...) are ignored. The kiosk's
++  operator menu removes the flag when the operator asks for the stock MiSTer menu.
++- **doesn't pop up the OSD volume bar.** The kiosk shows the volume itself.
++
++It also adds a `save_nvram` command (`echo save_nvram > /dev/MiSTer_cmd`), which saves the
++running arcade game's NVRAM without opening the OSD. At start-up it lists its extra
++features in `/tmp/MiSTer_features`, so the kiosk knows to use them.
++
++The menu that appears over a running game (when opened from the operator menu's "Game
++settings" or "MiSTer menu") keeps each core's own OSD colour, because that colour is
++built into every core's FPGA design.
++
++## Files changed
++
++`kiosk.cpp` and `kiosk.h` are new. `main.cpp`, `menu.cpp`, `input.cpp` and `audio.cpp` have
++a few lines each, marked with "kiosk" comments. Run `git diff upstream/master` to see the
++whole patch.
++
++## Getting the binary
++
++Every push builds `MiSTer` with the official ARM GCC 10.2 toolchain (GitHub Actions →
++**Build MiSTer** → artifact). Tagged versions attach it to a GitHub release.
++
++## Installing
++
++1. Copy `MiSTer` over `/media/fat/MiSTer` on the SD card (keep the old one as
++   `MiSTer.orig`), then reboot.
++2. Stop the updater replacing it: in `/media/fat/downloader.ini`, set the
++   `[distribution_mister]` section to skip the main binary, or skip updates on the
++   cabinet and update by hand.
++3. To go back to stock MiSTer, copy `MiSTer.orig` back.
++
++## Keeping up with upstream
++
++```
++git remote add upstream https://github.com/MiSTer-devel/Main_MiSTer
++git fetch upstream
++git rebase upstream/master     # the patch is small, so conflicts are rare
++git push --force-with-lease
++```
+diff --git a/audio.cpp b/audio.cpp
+index ad70709..f16a133 100644
+--- a/audio.cpp
++++ b/audio.cpp
+@@ -1,6 +1,7 @@
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
++#include "kiosk.h"
+ #include <inttypes.h>
+ #include <errno.h>
+ #include <sys/ioctl.h>
+@@ -165,6 +166,9 @@ void set_volume(int cmd)
+ 
+ 	send_volume();
+ 
++	// The MisterOperator kiosk shows the volume itself.
++	if (kiosk_active()) return;
++
+ 	if (vol_att & 0x10)
+ 	{
+ 		Info("\x8d Mute", 1000);
+diff --git a/input.cpp b/input.cpp
+index 733271e..a67c274 100644
+--- a/input.cpp
++++ b/input.cpp
+@@ -1,4 +1,5 @@
+ #include <stdio.h>
++#include "kiosk.h"
+ #include <fcntl.h>
+ #include <unistd.h>
+ #include <signal.h>
+@@ -6599,6 +6600,10 @@ int input_test(int getchar)
+ 						}
+ 						request_screenshot(p, scaled);
+ 					}
++					else if (!strcmp(cmd, "save_nvram"))
++					{
++						kiosk_save_nvram();
++					}
+ 					else if (!strncmp(cmd, "volume ", 7))
+ 					{
+ 						if (!strcmp(cmd + 7, "mute")) set_volume(0x81);
+diff --git a/kiosk.cpp b/kiosk.cpp
+new file mode 100644
+index 0000000..685086d
+--- /dev/null
++++ b/kiosk.cpp
+@@ -0,0 +1,43 @@
++#include <stdio.h>
++#include <sys/stat.h>
++
++#include "kiosk.h"
++#include "hardware.h"
++#include "user_io.h"
++#include "spi.h"
++#include "support.h"
++
++bool kiosk_active()
++{
++	// Checked from the main loop, so look at the file at most every 200 ms.
++	static unsigned long next_check = 0;
++	static bool active = false;
++
++	if (!next_check || CheckTimer(next_check))
++	{
++		struct stat st;
++		active = !stat(KIOSK_FLAG, &st);
++		next_check = GetTimer(200);
++	}
++	return active;
++}
++
++void kiosk_write_features()
++{
++	FILE *f = fopen(KIOSK_FEATURES, "w");
++	if (f)
++	{
++		fputs("kiosk_active\nsave_nvram\nquiet_volume\n", f);
++		fclose(f);
++	}
++}
++
++void kiosk_save_nvram()
++{
++	// Same check the OSD makes before its "Saving..." screen.
++	if (is_arcade() && spi_uio_cmd(UIO_CHK_UPLOAD))
++	{
++		printf("kiosk: saving nvram\n");
++		arcade_nvm_save();
++	}
++}
+diff --git a/kiosk.h b/kiosk.h
+new file mode 100644
+index 0000000..c847fb6
+--- /dev/null
++++ b/kiosk.h
+@@ -0,0 +1,26 @@
++#ifndef KIOSK_H
++#define KIOSK_H
++
++// MisterOperator kiosk support.
++//
++// The kiosk (https://github.com/alex-acsit/MisterOperator) creates KIOSK_FLAG
++// while it owns the screen. While it exists:
++//   - the menu core goes straight to the Linux framebuffer the kiosk draws on,
++//     instead of showing the MiSTer menu;
++//   - the OSD can't be opened and the OSD hotkeys are ignored;
++//   - volume changes don't pop up the OSD volume bar.
++// Without the file, everything behaves exactly like upstream Main_MiSTer.
++//
++// Extra MiSTer_cmd commands (always available):
++//   save_nvram   save the running arcade core's NVRAM without opening the OSD
++//
++// At start-up KIOSK_FEATURES lists what this build supports, one word per line.
++
++#define KIOSK_FLAG     "/tmp/kiosk_active"
++#define KIOSK_FEATURES "/tmp/MiSTer_features"
++
++bool kiosk_active();
++void kiosk_write_features();
++void kiosk_save_nvram();
++
++#endif
+diff --git a/main.cpp b/main.cpp
+index f1eaf82..41a3563 100644
+--- a/main.cpp
++++ b/main.cpp
+@@ -34,6 +34,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ #include "scheduler.h"
+ #include "osd.h"
+ #include "offload.h"
++#include "kiosk.h"
+ 
+ const char *version = "$VER:" VDATE;
+ 
+@@ -71,6 +72,7 @@ int main(int argc, char *argv[])
+ 
+ 	FindStorage();
+ 	user_io_init((argc > 1) ? argv[1] : "",(argc > 2) ? argv[2] : NULL);
++	kiosk_write_features();
+ 
+ #ifdef USE_SCHEDULER
+ 	scheduler_init();
+diff --git a/menu.cpp b/menu.cpp
+index 110b63b..4782fda 100644
+--- a/menu.cpp
++++ b/menu.cpp
+@@ -28,6 +28,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ #include <ctype.h>
+ #include <fcntl.h>
+ #include <time.h>
++#include "kiosk.h"
+ #include <arpa/inet.h>
+ #include <sys/socket.h>
+ #include <netdb.h>
+@@ -1369,8 +1370,9 @@ void HandleUI(void)
+ 		}
+ 	}
+ 
+-	//prevent OSD control while script is executing on framebuffer
+-	if ((!video_fb_state() || video_chvt(0) != 2) && !select_ini)
++	//prevent OSD control while script is executing on framebuffer,
++	//or while the MisterOperator kiosk owns the screen
++	if ((!video_fb_state() || video_chvt(0) != 2) && !select_ini && !kiosk_active())
+ 	{
+ 		switch (c)
+ 		{
+@@ -1638,6 +1640,19 @@ void HandleUI(void)
+ 		// fall through
+ 
+ 	case MENU_NONE2:
++		if (kiosk_active())
++		{
++			// MisterOperator kiosk: never open the OSD. In the menu core go
++			// straight to the Linux framebuffer the kiosk draws on, instead
++			// of showing the MiSTer menu.
++			if (is_menu() && !video_fb_state() && cfg.fb_terminal)
++			{
++				video_chvt(1);
++				video_fb_enable(1);
++				has_fb_terminal = 1;
++			}
++			break;
++		}
+ 		if (menu && !osd_unlocked)
+ 		{
+ 			menustate = MENU_UNLOCK1;
+-- 
+2.43.0
+
