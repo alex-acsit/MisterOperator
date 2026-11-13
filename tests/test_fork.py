@@ -97,6 +97,8 @@ check(k.mode == "operator" and flag(), "operator again")
 
 # ---- installing the kiosk build
 os.remove(K.FEATURES_PATH)
+if os.path.exists(K.KIOSK_MAIN):
+    os.remove(K.KIOSK_MAIN)           # the shipped binary; this part starts without one
 k.opview = K.OperatorView(k)
 row = [it for it in k.opview.items() if it[0] == "MISTER MAIN"][0]
 check(row[1]() == "STOCK" and row[3] is None, "no MiSTer_kiosk file: shows STOCK, nothing to install")
