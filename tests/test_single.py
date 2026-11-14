@@ -105,4 +105,11 @@ k2.set_locked(False); poll()
 k2.opview.open_page("single"); k2.opview.sel = 0; k2.opview.press()
 check(K.load_config()["single_game"] == "" and k2.opview.single_text() == "OFF >", "OFF: back to the game list")
 k2.opview.back(); k2.opview.back(); check(k2.mode == "launcher", "locking shows the list again")
+# 2.4: an older install on save_nvram = once is moved to always, one time only
+st = K.load_state(); st.pop("nvram_always_set", None); K.save_state(st)
+K.set_config_value("save_nvram", "once")
+k3 = K.Kiosk(); check(K.load_config()["save_nvram"] == "always" and k3.cfg["save_nvram"] == "always",
+                     "old default once becomes always")
+K.set_config_value("save_nvram", "once")
+k4 = K.Kiosk(); check(K.load_config()["save_nvram"] == "once", "only once: an operator's later choice stays")
 print("%d failure(s)" % fails)

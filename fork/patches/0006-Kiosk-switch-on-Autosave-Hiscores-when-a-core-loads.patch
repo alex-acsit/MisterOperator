@@ -1,0 +1,151 @@
+From 9def4e6a498100c6cb2e0ce9ba2c4b09f28ae66b Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 14 Nov 2026 13:43:02 +1100
+Subject: [PATCH 6/6] Kiosk: switch on "Autosave Hiscores" when a core loads
+
+While the kiosk is active, any core option whose label is an autosave of
+high scores (e.g. Arcade cores' "Autosave Hiscores", wherever its status
+bit is) is set to its "On" value as the core's settings are loaded, and
+the settings are saved. Listed as hiscore_autosave in MiSTer_features.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01BiX7tJ3KvN3UYXpZzAPMyh
+---
+ kiosk.cpp   | 67 ++++++++++++++++++++++++++++++++++++++++++++++++++++-
+ kiosk.h     |  6 ++++-
+ user_io.cpp |  2 ++
+ 3 files changed, 73 insertions(+), 2 deletions(-)
+
+diff --git a/kiosk.cpp b/kiosk.cpp
+index 1426ce5..82c85a1 100644
+--- a/kiosk.cpp
++++ b/kiosk.cpp
+@@ -1,4 +1,7 @@
+ #include <stdio.h>
++#include <string.h>
++#include <strings.h>
++#include <ctype.h>
+ #include <sys/stat.h>
+ #include <sys/sysinfo.h>
+ 
+@@ -33,7 +36,7 @@ void kiosk_write_features()
+ 	FILE *f = fopen(KIOSK_FEATURES, "w");
+ 	if (f)
+ 	{
+-		fputs("kiosk_active\nsave_nvram\nquiet_volume\nboot_flag\nclose_menu\n", f);
++		fputs("kiosk_active\nsave_nvram\nquiet_volume\nboot_flag\nclose_menu\nhiscore_autosave\n", f);
+ 		fclose(f);
+ 	}
+ }
+@@ -47,3 +50,65 @@ void kiosk_save_nvram()
+ 		arcade_nvm_save();
+ 	}
+ }
++
++// The n-th comma-separated field of a CONF_STR entry, into buf.
++static bool conf_field(const char *p, int n, char *buf, size_t size)
++{
++	while (n-- > 0)
++	{
++		p = strchr(p, ',');
++		if (!p) return false;
++		p++;
++	}
++	size_t len = strcspn(p, ",");
++	if (len >= size) len = size - 1;
++	memcpy(buf, p, len);
++	buf[len] = 0;
++	return true;
++}
++
++static bool is_hiscore_autosave(const char *label)
++{
++	return strcasestr(label, "autosave") &&
++		(strcasestr(label, "hiscore") || strcasestr(label, "hi-score") ||
++		 strcasestr(label, "hi score") || strcasestr(label, "high score") ||
++		 strcasestr(label, "highscore"));
++}
++
++bool kiosk_apply_core_options()
++{
++	if (!kiosk_active()) return false;
++
++	bool changed = false;
++	for (int i = 1; ; i++)
++	{
++		char *p = user_io_get_confstr(i);
++		if (!p) break;
++
++		// Skip the hide/disable/page prefixes: H2, h2, D1, d1, P1 ...
++		while ((p[0] == 'H' || p[0] == 'h' || p[0] == 'D' || p[0] == 'd' || p[0] == 'P') && isdigit((unsigned char)p[1])) p += 2;
++		if (p[0] != 'O' && p[0] != 'o') continue;
++		int ex = p[0] == 'o';
++
++		char opt[32], label[128], val[64];
++		if (!conf_field(p + 1, 0, opt, sizeof(opt)) || !conf_field(p, 1, label, sizeof(label))) continue;
++		if (!is_hiscore_autosave(label)) continue;
++
++		// The value whose name is "On" (usually 1).
++		uint32_t on = 1;
++		for (int v = 0; conf_field(p, 2 + v, val, sizeof(val)); v++)
++		{
++			char *t = val;
++			while (*t == ' ') t++;
++			if (!strcasecmp(t, "on") || !strcasecmp(t, "yes") || !strcasecmp(t, "enabled")) { on = v; break; }
++		}
++
++		if (user_io_status_get(opt, ex) != on)
++		{
++			printf("kiosk: %s -> %s (status %s%s)\n", label, "On", ex ? "o" : "O", opt);
++			user_io_status_set(opt, on, ex);
++			changed = true;
++		}
++	}
++	return changed;
++}
+diff --git a/kiosk.h b/kiosk.h
+index e2a4ff9..c8a5d94 100644
+--- a/kiosk.h
++++ b/kiosk.h
+@@ -8,7 +8,9 @@
+ //   - the menu core goes straight to the Linux framebuffer the kiosk draws on,
+ //     instead of showing the MiSTer menu;
+ //   - the OSD can't be opened and the OSD hotkeys are ignored;
+-//   - volume changes don't pop up the OSD volume bar.
++//   - volume changes don't pop up the OSD volume bar;
++//   - a core's "Autosave Hiscores" option is switched on when the core loads
++//     (and saved in its settings), so high scores are kept without the OSD.
+ // Without the file, everything behaves exactly like upstream Main_MiSTer.
+ //
+ // Extra MiSTer_cmd commands (always available):
+@@ -28,5 +30,7 @@
+ bool kiosk_active();
+ void kiosk_write_features();
+ void kiosk_save_nvram();
++// Called while a core's settings are loaded; returns true if it changed any.
++bool kiosk_apply_core_options();
+ 
+ #endif
+diff --git a/user_io.cpp b/user_io.cpp
+index 83e63c8..d5a3d0a 100644
+--- a/user_io.cpp
++++ b/user_io.cpp
+@@ -13,6 +13,7 @@
+ #include "hardware.h"
+ #include "osd.h"
+ #include "user_io.h"
++#include "kiosk.h"
+ #include "debug.h"
+ #include "spi.h"
+ #include "cfg.h"
+@@ -1633,6 +1634,7 @@ void user_io_init(const char *path, const char *xml)
+ 				}
+ 
+ 				if (xml && isXmlName(xml) == 2) mgl_apply_options(config_found);
++				if (kiosk_apply_core_options()) user_io_status_save(name);
+ 				user_io_status_set("[0]", 1);
+ 			}
+ 
+-- 
+2.43.0
+

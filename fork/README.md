@@ -7,7 +7,8 @@ patch to it that makes the kiosk seamless:
 | | Stock MiSTer main | Kiosk build |
 |---|---|---|
 | Boot / after a game | Stock menu shows for a moment, then the kiosk takes over | Straight to the kiosk |
-| Saving NVRAM on quit | MiSTer menu flashes open for 0.3 s (`save_nvram = once` limits it) | Saved silently, every time |
+| Saving NVRAM on quit | MiSTer menu flashes open for 0.3 s on every quit | Saved silently, every time |
+| "Autosave Hiscores" core option | As each core's settings say (usually Off) | Switched On when the core loads, and saved |
 | MiSTer menu while locked | Blocked by the kiosk intercepting buttons | Can't be opened at all |
 | Volume changes | OSD volume bar pops up | Only the kiosk's own display |
 
@@ -23,7 +24,7 @@ colour, because that is built into every core's FPGA design.
 
 - `patches/`: the patch series against upstream Main_MiSTer (apply with `git am`):
   2 new files (`kiosk.cpp`, `kiosk.h`) and a few lines in `main.cpp`, `menu.cpp`,
-  `input.cpp` and `audio.cpp`, plus a GitHub Actions workflow that builds it with the
+  `input.cpp`, `user_io.cpp` and `audio.cpp`, plus a GitHub Actions workflow that builds it with the
   official ARM GCC 10.2 toolchain.
 - `zigbuild.py`: a compile-and-link check that works without that toolchain
   (`pip install ziglang`, then `python3 zigbuild.py <Main_MiSTer dir> <build dir>`).
@@ -38,6 +39,14 @@ At power-on the main program starts before the kiosk. So the kiosk also leaves
 for the first 2 minutes after power-on: no MiSTer menu at boot either. After that only
 `/tmp/kiosk_active` counts, so a missing or broken kiosk can't keep the menu blocked. If
 the kiosk takes over while the MiSTer menu is already showing, the build closes it.
+
+**High scores.** Many arcade cores (Pac-Man, Galaga, Donkey Kong, Centipede, Robotron and
+others using the MiSTer hiscore module) have an OSD option **Autosave Hiscores**, at a
+different status bit in each core. While the kiosk flag is present, this build reads the
+core's option list as it loads, finds any option whose name is an autosave of high scores,
+sets it to its `On` value and saves the core's settings (`config/<core>.CFG`), as if the
+operator had switched it on in the OSD. Cores without the option are untouched. It's
+listed as `hiscore_autosave` in `/tmp/MiSTer_features`.
 
 ## Installing
 

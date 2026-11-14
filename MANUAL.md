@@ -1,6 +1,6 @@
 # MisterOperator manual
 
-Version 2.3. MisterOperator turns a MiSTer FPGA into a locked-down, arcade-only cabinet:
+Version 2.4. MisterOperator turns a MiSTer FPGA into a locked-down, arcade-only cabinet:
 players see a game list and one MENU button that always brings them back to it, and the
 operator gets a hidden OPERATOR button that opens a service menu in the same look.
 
@@ -385,13 +385,25 @@ show a CMOS error and reset on every start.
 So when such a game is quit, the kiosk flashes that menu open for about 0.3 s
 (`nvram_save_s`). `save_nvram` decides how often:
 
-- `once` (default): until the game has a good save (one made after at least a minute of
-  play), then no more flashes. New high scores aren't kept after that.
-- `always`: on every quit. Keeps high scores, with the flash each time.
+- `always` (default): on every quit, so high scores are kept. With the stock main program
+  there's a flash each time.
+- `once`: until the game has a good save (one made after at least a minute of play), then
+  no more flashes. New high scores aren't kept after that.
 - `off`: never.
 
 **With the kiosk build** (section 6), NVRAM is saved silently on every quit, so `once`
 and `always` both mean every time.
+
+Updating to 2.4 moves an install still on the old default (`once`) to `always`, one time;
+choose otherwise in **Save NVRAM** afterwards and it stays.
+
+**High scores in cores with "Autosave Hiscores".** Many arcade cores (Pac-Man, Galaga,
+Donkey Kong, Centipede, Robotron and others) keep high scores through an OSD option,
+**Autosave Hiscores**, which is usually off. The kiosk build switches it on in every core
+that has it, as the core loads, and saves that in the core's settings, so high scores are
+written to `config/nvram/` and kept. With the stock main program, switch it on by hand
+once per core: run the game from **Game settings**, open the MiSTer menu with MENU, set
+**Autosave Hiscores** to On and save.
 
 ### 5.6 Themes and colours
 
@@ -417,7 +429,8 @@ flashes it open. MisterOperator includes a lightly patched build, `arcade_kiosk/
 | | Stock MiSTer main | Kiosk build |
 |---|---|---|
 | Boot, and after a game | Stock menu for a moment, then the kiosk | Straight to the kiosk |
-| Saving NVRAM | Menu flashes open (limited by `save_nvram = once`) | Silent, every time |
+| Saving NVRAM | Menu flashes open on every quit | Silent, every time |
+| Autosave Hiscores (core option) | As set in each core (usually Off) | Switched On in every core that has it |
 | MiSTer menu while locked | Blocked by the kiosk intercepting buttons | Can't be opened at all |
 | Volume changes | MiSTer volume bar pops up | Only the operator menu's own bar |
 
@@ -536,7 +549,7 @@ starting with `;` are comments, and so is anything after a `;` on a line. Restar
 | Setting | Default | |
 |---|---|---|
 | `game_idle_exit_s` | `300` | Quit a game after this long with no input (`0` = never) |
-| `save_nvram` | `once` | `always` or `off` |
+| `save_nvram` | `always` | `once` or `off` |
 | `nvram_save_s` | `0.3` | How long the MiSTer menu stays open to save NVRAM (stock main) |
 | `launch_timeout_s` | `12` | Give up on a game that hasn't started after this long |
 
@@ -671,6 +684,7 @@ Everything is written to `/tmp/arcadekiosk.log` (also readable in **View log**).
 
 | Version | Date | Changes |
 |---|---|---|
+| 2.4 | 2026-11-14 | NVRAM saved on every quit by default (`save_nvram = always`; older installs moved over once). Kiosk build switches on every core's "Autosave Hiscores" option. |
 | 2.3 | 2026-11-14 | Single-game mode. Controller setup wizard (buttons 1–6, Start, Coin; no MiSTer menu or mouse steps). The 240p Test Suite launcher is gone again. |
 | 2.2 | 2026-11-14 | Operator menu: Monitor test (nine test patterns) and Input test. |
 | 2.1.1 | 2026-11-13 | The update script can replace itself safely, and upgrades 2.0.1 installs directly. |

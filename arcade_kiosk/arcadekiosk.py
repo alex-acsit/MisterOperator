@@ -67,7 +67,7 @@ sys.path.insert(0, HERE)
 from font8x8 import FONT  # noqa: E402
 import monitor_test  # noqa: E402
 
-VERSION = "2.3"
+VERSION = "2.4"
 
 CONFIG_PATH = os.path.join(HERE, "kiosk.ini")
 STATE_PATH = os.path.join(HERE, "state.json")
@@ -290,7 +290,7 @@ DEFAULTS = {
     "update_token": "",
     "auto_update": "0",
     "game_idle_exit_s": "300",
-    "save_nvram": "once",
+    "save_nvram": "always",
     "nvram_save_s": "0.3",
     "nvram_dir": "/media/fat/config/nvram",
     "theme": "green",
@@ -2684,6 +2684,19 @@ class Kiosk:
     def __init__(self):
         self.cfg = load_config()
         self.state = load_state()
+        if not self.state.get("nvram_always_set"):
+            # 2.4: high scores are kept, so NVRAM is saved on every quit. Installs
+            # from before, still on the old default "once", are moved to "always"
+            # one time; an operator can still choose otherwise afterwards.
+            self.state["nvram_always_set"] = True
+            if self.cfg.get("save_nvram", "").strip().lower() == "once":
+                try:
+                    set_config_value("save_nvram", "always")
+                    self.cfg["save_nvram"] = "always"
+                    log("save_nvram: once -> always (keeps high scores)")
+                except OSError as e:
+                    log("could not set save_nvram: %s" % e)
+            save_state(self.state)
         if flag(self.cfg, "lock_on_boot"):
             self.state["locked"] = True
         self.state.setdefault("locked", True)

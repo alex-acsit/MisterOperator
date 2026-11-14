@@ -86,7 +86,8 @@ check(k.mode == "launcher", "back to the list")
 import os
 os.makedirs(T + "/nvram", exist_ok=True)
 open(T + "/nvram/NBA Jam TE (rev 4.0 03-23-94).nvm", "wb").write(b"x")
-check(k.nvram_mode() == "once", "default mode is once")
+check(k.nvram_mode() == "always", "default mode is always")
+k.cfg["save_nvram"] = "once"
 play("NBA Jam TE"); k.game_started -= 120; del log[:]
 ev((1, 0x129, 1)); ev((1, 0x129, 0))
 check(log[0] == "TAP KEY_F12" and games["NBA Jam TE"]["path"] in k.state["nvram_good"], "long game: saved and marked good")

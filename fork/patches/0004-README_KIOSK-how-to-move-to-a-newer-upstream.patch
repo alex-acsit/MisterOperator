@@ -1,7 +1,7 @@
 From 573707709be997d25d007c632ece77f806d3786f Mon Sep 17 00:00:00 2001
 From: alex-acsit <alex@acsit.com.au>
 Date: Fri, 13 Nov 2026 22:09:51 +1100
-Subject: [PATCH 4/5] README_KIOSK: how to move to a newer upstream
+Subject: [PATCH 4/6] README_KIOSK: how to move to a newer upstream
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01BiX7tJ3KvN3UYXpZzAPMyh
