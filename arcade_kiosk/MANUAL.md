@@ -1,6 +1,6 @@
 # MisterOperator manual
 
-Version 2.1.1. MisterOperator turns a MiSTer FPGA into a locked-down, arcade-only cabinet:
+Version 2.4.1. MisterOperator turns a MiSTer FPGA into a locked-down, arcade-only cabinet:
 players see a game list and one MENU button that always brings them back to it, and the
 operator gets a hidden OPERATOR button that opens a service menu in the same look.
 
@@ -119,8 +119,11 @@ waiting. Under it is the genre being shown. The selected game's picture (or its 
 letter), maker, year and genre are on the right, or underneath on a vertical screen.
 The footer shows "PRESS 1 TO PLAY" and the kiosk version.
 
-When a game is chosen the list shows LOADING, and the game starts. If it doesn't start
-within 12 s the list comes back with "COULD NOT START THAT GAME". After a game, the list
+When a game is chosen the list shows LOADING, and the game starts. Games with big ROM sets
+(the Midway games, for example) can take 20 s or more to load; the kiosk waits as long as
+the MiSTer is still loading the game, up to 2 minutes (`launch_max_s`). If the MiSTer
+doesn't start loading it within 12 s (`launch_timeout_s`), or it still isn't running after
+2 minutes, the list comes back with "COULD NOT START THAT GAME". After a game, the list
 returns to the game that was just played (`remember_last`).
 
 ### 3.3 Genres and the letter jump
@@ -138,8 +141,9 @@ Left/right on the list (without the picker) jumps to the previous or next starti
 ### 3.4 Coins and credits
 
 A coin put in on the game list, or during a demo, isn't lost: it's held and shown as
-**CREDITS n** in the header. When the player picks a game, the kiosk waits 30 s
-(`coin_delay_s`) for the game to load, then presses coin in the game once per credit. Each
+**CREDITS n** in the header. When the player picks a game, the kiosk waits until the game
+has loaded and been running for 30 s (`coin_delay_s`), then presses coin in the game once
+per credit. Each
 press goes to the controller the coin came from, so your coin mapping applies.
 
 - Coins put in during a game go straight into the game as normal.
@@ -207,6 +211,10 @@ Every change is saved to `kiosk.ini` at once and keeps its comments.
 | **Play counts** | How many times each game has been played from the list, most played first. |
 | **Reset NVRAM** | Lists the games with saved NVRAM. Button 1 twice wipes that game's settings and high scores. |
 | **Rescan games** | Re-reads the arcade folder (after adding or removing games). |
+| **Single game** | Locks the cabinet to one game (see [4.6](#46-single-game-mode)). Shows OFF or the game. |
+| **Controller setup** | Sets up a controller, one press per control (see [4.7](#47-controller-setup)). |
+| **Monitor test** | Full-screen test patterns for adjusting the monitor (see [4.5](#45-monitor-and-input-tests)). |
+| **Input test** | Shows every button and stick as it's pressed (see [4.5](#45-monitor-and-input-tests)). |
 | **View log** | The end of `/tmp/arcadekiosk.log`. Up/down scrolls, left/right pages. |
 | **MiSTer menu** | The stock MiSTer menu, for anything else. Hold OPERATOR to come back. |
 | **MiSTer main** | KIOSK, STOCK or OLD: which MiSTer main program is running. Installs or updates the kiosk build (see [6](#6-kiosk-build-of-the-mister-main-program)). |
@@ -229,6 +237,78 @@ saved as `hidden_genres`.
 `operator_menu = 0` brings back the original behaviour, where OPERATOR goes straight to
 the stock MiSTer menu instead of the operator menu. `arcadekiosk.py --stock` over SSH always
 gets there.
+
+### 4.5 Monitor and input tests
+
+**Monitor test** draws test patterns modelled on the 240p Test Suite's, at the list's own
+320×240 resolution and refresh (15 kHz with the `[menu]` lines from `MiSTer.ini`). They go
+straight onto the raster, so on a TATE monitor they fill the tube the same way; only the
+name box is turned upright. Left/right or Button 1 changes the pattern, up/down its
+variant; the name shows for a few seconds after each change. Button 2, MENU or a tap of
+OPERATOR goes back. The operator menu doesn't lock itself for 30 minutes while a pattern
+is up.
+
+| Pattern | Variants | Use it for |
+|---|---|---|
+| Grid | 16, 20, 8, 32 px | Geometry, size and centring (red border and centre cross) |
+| Convergence | Dots, crosses, red, green, blue grids | Static and dynamic convergence |
+| Colour bars | 75%, 100% | Colour, tint and the colour decoder |
+| Black/white level | Black, white | Brightness (lowest bars just visible) and contrast (top bars stay apart without blooming) |
+| Grey ramps | 32 steps, 16 steps, smooth | Grey scale and colour balance, R/G/B and white |
+| Purity | White, red, green, blue, 50% grey, black | Purity and degaussing; dead or stuck pixels on LCDs |
+| Overscan | — | How much of the picture is hidden: frames at the edge, 2.5%, 5%, 7.5% and 10% |
+| Linearity | With grid, without | Linearity (the circles should be round) |
+| Sharpness | — | Focus: 1, 2 and 4 px stripes and a checkerboard |
+
+**Input test** lists every controller the kiosk holds. Each one shows its stick as a 3×3
+grid and a box for each button once it has been pressed, lit while held. Buttons with a
+job in the kiosk are named by it (PLAY, GENRE+, GENRE-, LETTER, COIN, MENU, OPERATOR);
+the rest go by their code name, which is what `kiosk.ini` and the log use. Stick and
+analogue values and spinner/trackball counts are shown too, and the last press is at the
+bottom. Every button is tested, MENU included, so to leave **hold any button for 3
+seconds** or tap OPERATOR. (Holding OPERATOR locks the cabinet, as everywhere.)
+
+### 4.6 Single-game mode
+
+**Single game** opens a list of every game, with **OFF: the game list** at the top and a `*`
+on the current choice. Button 1 picks one. From then on, whenever the cabinet is locked
+(**Back to games**, after holding OPERATOR, after a power cut) it starts that game
+straight away, with no game list:
+
+- MENU does nothing, and the game never quits for being idle.
+- If the game drops out on its own, it starts again.
+- Coins go straight into the game.
+- Hold OPERATOR for the operator menu as usual. **Back to games** goes back into the game.
+- If the game won't start three times in a row, the game list shows with a message, so
+  the cabinet isn't stuck reloading.
+
+Set **Single game** to OFF to get the game list back. The choice is saved as
+`single_game` in `kiosk.ini` (the path of the `.mra` or `.mgl`).
+
+### 4.7 Controller setup
+
+**Controller setup** sets up an arcade controller in one pass, without the MiSTer menu.
+Press each control as the screen asks: stick up, down, left and right, then **buttons 1
+to 6**, then **player Start**, then **Coin**. A picture of the panel lights up the control
+to press next (4 5 6 on the top row, 1 2 3 underneath, as in the standard layout).
+The first controller touched is the one being set up; set up player 2 by running it again
+on the other controller.
+
+- There are no MiSTer menu (OSD) or mouse steps, and buttons are asked for by number, not
+  as B/A/R/Y/X/L.
+- A tap of OPERATOR skips a step (buttons 2–6, Start and Coin can be skipped; the stick
+  and button 1 can't). MENU cancels without changing anything. A control already used is
+  refused.
+- At the end, Button 1 or Start saves. A tap of OPERATOR starts again.
+
+Saving writes the controller's MiSTer mapping (`config/inputs/input_<vid>_<pid>_v4.map`),
+used by the MiSTer menu and as every core's default: buttons 1–6 go in B, A, R, Y, X, L,
+Start in Start and Coin in Select, which is what `panel_layout` expects, so every game gets
+the standard layout. The mapping's other entries (such as the MiSTer menu button) are kept,
+the old file is backed up (`--restore-maps` puts it back), and games already set up for
+the controller get the new directions. It also updates `kiosk.ini` so the game list
+uses the same buttons: 1 and Start play, 2 and 3 change genre, 4 is the letter jump, Coin
+adds a credit, and a stick on unusual keys moves the list (`dir_keys`).
 
 ## 5. Features in detail
 
@@ -288,6 +368,7 @@ and Pause, Service, Test, Tilt and "Core credits" are left unmapped, so players 
 them. Before each game starts, the kiosk writes that game's MiSTer button mapping, taking
 your encoder's buttons from the mapping you made in the MiSTer menu.
 
+- **Controller setup** in the operator menu maps your encoder for this in one pass.
 - `panel_layout = B,A,R,Y,X,L` names the pad buttons that are panel 1–6 in your encoder's
   MiSTer mapping; `panel_start` and `panel_coin` do the same for Start and Coin.
 - `layout_1` … `layout_6` set the order for games with that many buttons.
@@ -308,13 +389,35 @@ show a CMOS error and reset on every start.
 So when such a game is quit, the kiosk flashes that menu open for about 0.3 s
 (`nvram_save_s`). `save_nvram` decides how often:
 
-- `once` (default): until the game has a good save (one made after at least a minute of
-  play), then no more flashes. New high scores aren't kept after that.
-- `always`: on every quit. Keeps high scores, with the flash each time.
+- `always` (default): on every quit, so high scores are kept. With the stock main program
+  there's a flash each time.
+- `once`: until the game has a good save (one made after at least a minute of play), then
+  no more flashes. New high scores aren't kept after that.
 - `off`: never.
 
 **With the kiosk build** (section 6), NVRAM is saved silently on every quit, so `once`
 and `always` both mean every time.
+
+**Cores with their own "Save NVRAM" item.** Some cores only hand their NVRAM to the MiSTer
+when their own OSD item **Save NVRAM** is used, never by themselves: blahm1d's Midway cores
+(Wolf, T, Y, X and V Unit: Mortal Kombat 1–3, UMK3, NBA Jam, NBA Hangtime, Open Ice and
+others), NARC and Gladiator. The kiosk build (2.4.1 or later) uses that item for them on
+every quit, so their settings and high scores are kept. Neither the stock main program nor
+an older kiosk build can save them. Until you have the newer build, save by hand: play the
+game from **Game settings**, open the MiSTer menu with MENU and pick **Save NVRAM**. Many of
+these games have no factory settings built in, so without a save they show the CMOS
+setup screen on every start.
+
+Updating to 2.4 moves an install still on the old default (`once`) to `always`, one time;
+choose otherwise in **Save NVRAM** afterwards and it stays.
+
+**High scores in cores with "Autosave Hiscores".** Many arcade cores (Pac-Man, Galaga,
+Donkey Kong, Centipede, Robotron and others) keep high scores through an OSD option,
+**Autosave Hiscores**, which is usually off. The kiosk build switches it on in every core
+that has it, as the core loads, and saves that in the core's settings, so high scores are
+written to `config/nvram/` and kept. With the stock main program, switch it on by hand
+once per core: run the game from **Game settings**, open the MiSTer menu with MENU, set
+**Autosave Hiscores** to On and save.
 
 ### 5.6 Themes and colours
 
@@ -340,7 +443,8 @@ flashes it open. MisterOperator includes a lightly patched build, `arcade_kiosk/
 | | Stock MiSTer main | Kiosk build |
 |---|---|---|
 | Boot, and after a game | Stock menu for a moment, then the kiosk | Straight to the kiosk |
-| Saving NVRAM | Menu flashes open (limited by `save_nvram = once`) | Silent, every time |
+| Saving NVRAM | Menu flashes open on every quit; cores that only save from their own "Save NVRAM" item (blahm1d's Midway cores) aren't saved | Silent, every time, including those cores |
+| Autosave Hiscores (core option) | As set in each core (usually Off) | Switched On in every core that has it |
 | MiSTer menu while locked | Blocked by the kiosk intercepting buttons | Can't be opened at all |
 | Volume changes | MiSTer volume bar pops up | Only the operator menu's own bar |
 
@@ -414,6 +518,8 @@ starting with `;` are comments, and so is anything after a `;` on a line. Restar
 | Setting | Default | |
 |---|---|---|
 | `screen` | `yoko` | `tate_cw` / `tate_ccw` for a vertical monitor |
+| `single_game` | blank | Lock the cabinet to this game (path of an `.mra`/`.mgl`) |
+| `dir_keys` | blank | Extra keys that move the list, e.g. `KEY_R:up` (set by **Controller setup**) |
 | `theme` | `green` | `phosphor`, `classic`; plus `color_<name> = #RRGGBB` |
 | `title` | `ARCADE` | Heading on the list |
 | `footer_play` | `PRESS 1 TO PLAY` | Blinking footer text |
@@ -457,9 +563,10 @@ starting with `;` are comments, and so is anything after a `;` on a line. Restar
 | Setting | Default | |
 |---|---|---|
 | `game_idle_exit_s` | `300` | Quit a game after this long with no input (`0` = never) |
-| `save_nvram` | `once` | `always` or `off` |
+| `save_nvram` | `always` | `once` or `off` |
 | `nvram_save_s` | `0.3` | How long the MiSTer menu stays open to save NVRAM (stock main) |
-| `launch_timeout_s` | `12` | Give up on a game that hasn't started after this long |
+| `launch_timeout_s` | `12` | Give up on a game the MiSTer hasn't started loading after this long |
+| `launch_max_s` | `120` | Most time to wait for a game the MiSTer is still loading |
 
 **Attract mode**
 
@@ -522,7 +629,7 @@ Over SSH (`root` / `1` by default), `python3 /media/fat/arcade_kiosk/arcadekiosk
 
 | Path | |
 |---|---|
-| `arcade_kiosk/arcadekiosk.py`, `font8x8.py` | The kiosk |
+| `arcade_kiosk/arcadekiosk.py`, `font8x8.py`, `monitor_test.py` | The kiosk (`monitor_test.py`: test patterns, input test) |
 | `arcade_kiosk/kiosk.ini` | Settings |
 | `arcade_kiosk/state.json` | Lock state, credits, play counts, last game played |
 | `arcade_kiosk/run.sh` | Starts the kiosk at boot and restarts it if it stops |
@@ -563,11 +670,15 @@ Everything is written to `/tmp/arcadekiosk.log` (also readable in **View log**).
 | A controller is ignored | `--devices`. Check it isn't in `ignore_devices`. |
 | Controls stop working mid-game | `can't take ... (in use by the MiSTer)` in the log means a controller was reconnected during a game. The kiosk goes back to the list to recover. |
 | Coins aren't held as credits | Set `log_inputs = 1`, drop a coin, and add the code from the log to `coin_buttons`. |
-| CMOS error on NBA Jam or another Midway game | It appears once. Play for at least a minute, then quit with MENU so NVRAM is saved. **Reset NVRAM** starts a game afresh. |
+| CMOS error on NBA Jam or another Midway game | It appears once. Play for at least a minute, then quit with MENU so NVRAM is saved. **Reset NVRAM** starts a game afresh. With blahm1d's Midway cores it needs the kiosk build 2.4.1 or later, or a manual **Save NVRAM** (see [5.5](#55-nvram-settings-and-high-scores)). |
+| A big game (Mortal Kombat, NBA Jam…) shows COULD NOT START | The log says whether the MiSTer was `still loading` it. Raise `launch_max_s` if it needs longer than 2 minutes. A missing ROM zip also stops it: check the game in the stock MiSTer menu, which shows the error. |
 | A game is missing from the list | Check **Show games**, the **Genres** page, `genres`/`exclude_genres` and `game_list`. `--scan` lists what's found. |
 | The MiSTer menu seems blocked with the kiosk stopped | `rm /tmp/kiosk_active` over SSH, or reboot. |
 | The kiosk build won't start | The safety net restores `MiSTer.stock` within 90 s. By hand: copy `MiSTer.stock` over `MiSTer` on the SD card. |
 | "Update check failed" | Check the MiSTer's network. While the GitHub repo is private, set `update_token`. The log has the details. |
+| A button or stick seems dead | **Input test** shows whether the kiosk sees it, and its code name. |
+| A button does the wrong thing in games | Run **Controller setup** for that controller. |
+| The cabinet keeps starting the same game | **Single game** is on. Hold OPERATOR, set **Single game** to OFF. |
 | A new version misbehaves | `--rollback`, or copy a folder from `arcade_kiosk/backup/` back. |
 | Turn the kiosk off for good | Remove the `# Arcade Kiosk` lines from `/media/fat/linux/user-startup.sh`, and remove the kiosk build (section 6). Reboot. |
 
@@ -589,6 +700,10 @@ Everything is written to `/tmp/arcadekiosk.log` (also readable in **View log**).
 
 | Version | Date | Changes |
 |---|---|---|
+| 2.4.1 | 2026-11-14 | Big games that take a while to load (blahm1d's Midway cores, for example) are waited for instead of given up on after 12 s (`launch_max_s`); held credits and demo time count from when the game is up; a MENU press while a game is loading is no longer lost. Kiosk build: saves NVRAM for cores that only save from their own "Save NVRAM" item. |
+| 2.4 | 2026-11-14 | NVRAM saved on every quit by default (`save_nvram = always`; older installs moved over once). Kiosk build switches on every core's "Autosave Hiscores" option. |
+| 2.3 | 2026-11-14 | Single-game mode. Controller setup wizard (buttons 1–6, Start, Coin; no MiSTer menu or mouse steps). The 240p Test Suite launcher is gone again. |
+| 2.2 | 2026-11-14 | Operator menu: Monitor test (nine test patterns) and Input test. |
 | 2.1.1 | 2026-11-13 | The update script can replace itself safely, and upgrades 2.0.1 installs directly. |
 | 2.1 | 2026-11-13 | Operator menu: Show games (YOKO/TATE only) and a Genres page. Version in the footer instead of button hints. Updates over the internet (operator menu, Scripts menu, `--update`, `auto_update`). `#RRGGBB` colours in `kiosk.ini` now work. |
 | 2.0.1 | 2026-11-13 | Fixed booting to the MiSTer menu with the kiosk build; `.mgl` games work with it. |

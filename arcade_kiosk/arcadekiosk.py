@@ -67,7 +67,7 @@ sys.path.insert(0, HERE)
 from font8x8 import FONT  # noqa: E402
 import monitor_test  # noqa: E402
 
-VERSION = "2.4"
+VERSION = "2.4.1"
 
 CONFIG_PATH = os.path.join(HERE, "kiosk.ini")
 STATE_PATH = os.path.join(HERE, "state.json")
@@ -274,6 +274,7 @@ DEFAULTS = {
     "attract_vertical": "0",
     "attract_mute": "0",
     "launch_timeout_s": "12",
+    "launch_max_s": "120",
     "fb_width": "320",
     "fb_height": "240",
     "launch_buttons": "BTN_TRIGGER,BTN_SOUTH,BTN_START,KEY_ENTER,KEY_LEFTCTRL,KEY_1",
@@ -2190,6 +2191,50 @@ def core_name():
         return ""
 
 
+_main_pid = [None]
+
+
+def main_cmdline():
+    """The running MiSTer main program's arguments, or None if it can't be found.
+    To start a game the MiSTer restarts itself as `MiSTer <core.rbf> <game.mra>`,
+    then loads the ROMs, and only writes /tmp/CORENAME once they are all in."""
+    def read(pid):
+        try:
+            with open("/proc/%s/comm" % pid) as f:
+                if f.read().strip() != "MiSTer":
+                    return None
+            with open("/proc/%s/cmdline" % pid, "rb") as f:
+                return [a.decode("utf-8", "replace") for a in f.read().split(b"\0") if a]
+        except OSError:
+            return None
+    if _main_pid[0]:
+        args = read(_main_pid[0])
+        if args is not None:
+            return args
+    try:
+        pids = [p for p in os.listdir("/proc") if p.isdigit()]
+    except OSError:
+        return None
+    for pid in pids:
+        args = read(pid)
+        if args is not None:
+            _main_pid[0] = pid
+            return args
+    _main_pid[0] = None
+    return None
+
+
+def main_loading(path):
+    """True while the MiSTer main program has been started for this game (it is
+    loading the core and ROMs, which takes a while for big sets such as the Midway
+    games), as opposed to never having picked the game up at all."""
+    args = main_cmdline()
+    if not args or not path:
+        return False
+    want = os.path.basename(path).lower()
+    return any(os.path.basename(a).lower() == want for a in args[1:])
+
+
 def read_fb_param():
     try:
         with open(FB_PARAM_PATH) as f:
@@ -2742,6 +2787,9 @@ class Kiosk:
         self.attract_started = 0
         self.attract_seen_core = False
         self.attract_stamp = None
+        self.attract_game = None
+        self.attract_shown = 0
+        self.loading_logged = None
         self.attract_recent = []
         self.single_fails = 0           # single game: failed starts in a row
 
@@ -3095,6 +3143,8 @@ class Kiosk:
     def tick_coins(self, now):
         if self.mode != S_GAME or not (self.coin_queue or self.coin_down):
             return
+        if not self.game_seen_core:                 # still loading
+            return
         if now < self.coin_next:
             return
         if self.coin_down:                          # finish the press
@@ -3144,6 +3194,28 @@ class Kiosk:
             log("layout: failed for %s: %s" % (game.get("file"), e))
         mister_cmd("load_core %s" % game["path"])
         self.write_status()
+
+    def still_loading(self, now, started, game):
+        """Past launch_timeout_s without the game appearing: True if the MiSTer has
+        picked it up and is still loading it (big ROM sets take tens of seconds),
+        up to launch_max_s in all."""
+        if not game or now - started > float(self.cfg["launch_max_s"]):
+            return False
+        if not main_loading(game["path"]):
+            return False
+        if self.loading_logged != started:
+            self.loading_logged = started
+            log("%s is still loading (%d s)" % (game["label"], now - started))
+        return True
+
+    def game_core_up(self, now):
+        """The game's core has started (all its ROMs are in)."""
+        log("game running after %.1f s" % (now - self.game_started))
+        # Held credits go in once the game itself has had time to boot, counted
+        # from here rather than from the launch, so a slow load doesn't eat it.
+        if self.coin_queue:
+            self.coin_next = now + float(self.cfg["coin_delay_s"])
+        self.game_last_input = max(self.game_last_input, now)
 
     def nvram_mode(self):
         m = self.cfg.get("save_nvram", "once").strip().lower()
@@ -3266,6 +3338,7 @@ class Kiosk:
         self.attract_started = now
         self.attract_seen_core = False
         self.attract_stamp = core_stamp()
+        self.attract_game = g
         mister_cmd("load_core %s" % g["path"])
         self.write_status()
 
@@ -3898,11 +3971,13 @@ class Kiosk:
             if not is_menu and name:
                 if not self.game_seen_core:
                     self.single_fails = 0
+                    self.game_core_up(now)
                 self.game_seen_core = True
             elif is_menu and self.game_seen_core:
                 log("game ended without the menu button; back to launcher")
                 self.back_to_launcher_now()
-            elif now - self.game_started > float(self.cfg["launch_timeout_s"]):
+            elif (now - self.game_started > float(self.cfg["launch_timeout_s"])
+                    and not self.still_loading(now, self.game_started, self.current_game)):
                 log("game did not start")
                 if self.single_game():
                     self.single_fails += 1
@@ -3913,15 +3988,18 @@ class Kiosk:
         if self.mode == S_ATTRACT:
             fresh_main = core_stamp() != self.attract_stamp
             if not is_menu and name and fresh_main:
+                if not self.attract_seen_core:
+                    self.attract_shown = now        # a demo's minute starts once it's up
                 self.attract_seen_core = True
             if is_menu and (self.attract_seen_core or fresh_main):
                 # The demo game dropped back to the menu, or never loaded.
                 log("attract: game did not run; trying another")
                 self.start_attract()
-            elif not self.attract_seen_core and now - self.attract_started > float(self.cfg["launch_timeout_s"]):
+            elif (not self.attract_seen_core and now - self.attract_started > float(self.cfg["launch_timeout_s"])
+                    and not self.still_loading(now, self.attract_started, self.attract_game)):
                 log("attract: game did not start; trying another")
                 self.start_attract()
-            elif self.attract_seen_core and now - self.attract_started >= float(self.cfg["attract_game_s"]):
+            elif self.attract_seen_core and now - self.attract_shown >= float(self.cfg["attract_game_s"]):
                 self.start_attract()      # straight to the next demo, no menu in between
             return
 
@@ -3935,6 +4013,13 @@ class Kiosk:
                     self.enter_launcher()
             elif name and self.mode == S_WAIT:
                 # Locked but a game is running (e.g. booted with bootcore): go back.
+                self.go_menu()
+            elif (name and self.mode == S_RETURNING and now - self.return_at > 5
+                    and mister_ready()):
+                # Still in the game, and its main program is taking commands: the
+                # menu request was lost (MENU pressed while the game was still
+                # loading, when nothing reads MiSTer_cmd). Ask again.
+                log("still in %s; asking for the menu again" % name)
                 self.go_menu()
 
     def run(self):

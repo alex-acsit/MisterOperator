@@ -1,6 +1,6 @@
 # MisterOperator manual
 
-Version 2.4. MisterOperator turns a MiSTer FPGA into a locked-down, arcade-only cabinet:
+Version 2.4.1. MisterOperator turns a MiSTer FPGA into a locked-down, arcade-only cabinet:
 players see a game list and one MENU button that always brings them back to it, and the
 operator gets a hidden OPERATOR button that opens a service menu in the same look.
 
@@ -119,8 +119,11 @@ waiting. Under it is the genre being shown. The selected game's picture (or its 
 letter), maker, year and genre are on the right, or underneath on a vertical screen.
 The footer shows "PRESS 1 TO PLAY" and the kiosk version.
 
-When a game is chosen the list shows LOADING, and the game starts. If it doesn't start
-within 12 s the list comes back with "COULD NOT START THAT GAME". After a game, the list
+When a game is chosen the list shows LOADING, and the game starts. Games with big ROM sets
+(the Midway games, for example) can take 20 s or more to load; the kiosk waits as long as
+the MiSTer is still loading the game, up to 2 minutes (`launch_max_s`). If the MiSTer
+doesn't start loading it within 12 s (`launch_timeout_s`), or it still isn't running after
+2 minutes, the list comes back with "COULD NOT START THAT GAME". After a game, the list
 returns to the game that was just played (`remember_last`).
 
 ### 3.3 Genres and the letter jump
@@ -138,8 +141,9 @@ Left/right on the list (without the picker) jumps to the previous or next starti
 ### 3.4 Coins and credits
 
 A coin put in on the game list, or during a demo, isn't lost: it's held and shown as
-**CREDITS n** in the header. When the player picks a game, the kiosk waits 30 s
-(`coin_delay_s`) for the game to load, then presses coin in the game once per credit. Each
+**CREDITS n** in the header. When the player picks a game, the kiosk waits until the game
+has loaded and been running for 30 s (`coin_delay_s`), then presses coin in the game once
+per credit. Each
 press goes to the controller the coin came from, so your coin mapping applies.
 
 - Coins put in during a game go straight into the game as normal.
@@ -394,6 +398,16 @@ So when such a game is quit, the kiosk flashes that menu open for about 0.3 s
 **With the kiosk build** (section 6), NVRAM is saved silently on every quit, so `once`
 and `always` both mean every time.
 
+**Cores with their own "Save NVRAM" item.** Some cores only hand their NVRAM to the MiSTer
+when their own OSD item **Save NVRAM** is used, never by themselves: blahm1d's Midway cores
+(Wolf, T, Y, X and V Unit: Mortal Kombat 1–3, UMK3, NBA Jam, NBA Hangtime, Open Ice and
+others), NARC and Gladiator. The kiosk build (2.4.1 or later) uses that item for them on
+every quit, so their settings and high scores are kept. Neither the stock main program nor
+an older kiosk build can save them. Until you have the newer build, save by hand: play the
+game from **Game settings**, open the MiSTer menu with MENU and pick **Save NVRAM**. Many of
+these games have no factory settings built in, so without a save they show the CMOS
+setup screen on every start.
+
 Updating to 2.4 moves an install still on the old default (`once`) to `always`, one time;
 choose otherwise in **Save NVRAM** afterwards and it stays.
 
@@ -429,7 +443,7 @@ flashes it open. MisterOperator includes a lightly patched build, `arcade_kiosk/
 | | Stock MiSTer main | Kiosk build |
 |---|---|---|
 | Boot, and after a game | Stock menu for a moment, then the kiosk | Straight to the kiosk |
-| Saving NVRAM | Menu flashes open on every quit | Silent, every time |
+| Saving NVRAM | Menu flashes open on every quit; cores that only save from their own "Save NVRAM" item (blahm1d's Midway cores) aren't saved | Silent, every time, including those cores |
 | Autosave Hiscores (core option) | As set in each core (usually Off) | Switched On in every core that has it |
 | MiSTer menu while locked | Blocked by the kiosk intercepting buttons | Can't be opened at all |
 | Volume changes | MiSTer volume bar pops up | Only the operator menu's own bar |
@@ -551,7 +565,8 @@ starting with `;` are comments, and so is anything after a `;` on a line. Restar
 | `game_idle_exit_s` | `300` | Quit a game after this long with no input (`0` = never) |
 | `save_nvram` | `always` | `once` or `off` |
 | `nvram_save_s` | `0.3` | How long the MiSTer menu stays open to save NVRAM (stock main) |
-| `launch_timeout_s` | `12` | Give up on a game that hasn't started after this long |
+| `launch_timeout_s` | `12` | Give up on a game the MiSTer hasn't started loading after this long |
+| `launch_max_s` | `120` | Most time to wait for a game the MiSTer is still loading |
 
 **Attract mode**
 
@@ -655,7 +670,8 @@ Everything is written to `/tmp/arcadekiosk.log` (also readable in **View log**).
 | A controller is ignored | `--devices`. Check it isn't in `ignore_devices`. |
 | Controls stop working mid-game | `can't take ... (in use by the MiSTer)` in the log means a controller was reconnected during a game. The kiosk goes back to the list to recover. |
 | Coins aren't held as credits | Set `log_inputs = 1`, drop a coin, and add the code from the log to `coin_buttons`. |
-| CMOS error on NBA Jam or another Midway game | It appears once. Play for at least a minute, then quit with MENU so NVRAM is saved. **Reset NVRAM** starts a game afresh. |
+| CMOS error on NBA Jam or another Midway game | It appears once. Play for at least a minute, then quit with MENU so NVRAM is saved. **Reset NVRAM** starts a game afresh. With blahm1d's Midway cores it needs the kiosk build 2.4.1 or later, or a manual **Save NVRAM** (see [5.5](#55-nvram-settings-and-high-scores)). |
+| A big game (Mortal Kombat, NBA Jam…) shows COULD NOT START | The log says whether the MiSTer was `still loading` it. Raise `launch_max_s` if it needs longer than 2 minutes. A missing ROM zip also stops it: check the game in the stock MiSTer menu, which shows the error. |
 | A game is missing from the list | Check **Show games**, the **Genres** page, `genres`/`exclude_genres` and `game_list`. `--scan` lists what's found. |
 | The MiSTer menu seems blocked with the kiosk stopped | `rm /tmp/kiosk_active` over SSH, or reboot. |
 | The kiosk build won't start | The safety net restores `MiSTer.stock` within 90 s. By hand: copy `MiSTer.stock` over `MiSTer` on the SD card. |
@@ -684,6 +700,7 @@ Everything is written to `/tmp/arcadekiosk.log` (also readable in **View log**).
 
 | Version | Date | Changes |
 |---|---|---|
+| 2.4.1 | 2026-11-14 | Big games that take a while to load (blahm1d's Midway cores, for example) are waited for instead of given up on after 12 s (`launch_max_s`); held credits and demo time count from when the game is up; a MENU press while a game is loading is no longer lost. Kiosk build: saves NVRAM for cores that only save from their own "Save NVRAM" item. |
 | 2.4 | 2026-11-14 | NVRAM saved on every quit by default (`save_nvram = always`; older installs moved over once). Kiosk build switches on every core's "Autosave Hiscores" option. |
 | 2.3 | 2026-11-14 | Single-game mode. Controller setup wizard (buttons 1–6, Start, Coin; no MiSTer menu or mouse steps). The 240p Test Suite launcher is gone again. |
 | 2.2 | 2026-11-14 | Operator menu: Monitor test (nine test patterns) and Input test. |
