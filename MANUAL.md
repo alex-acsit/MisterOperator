@@ -1,6 +1,6 @@
 # MisterOperator manual
 
-Version 2.4.1. MisterOperator turns a MiSTer FPGA into a locked-down, arcade-only cabinet:
+Version 2.4.2. MisterOperator turns a MiSTer FPGA into a locked-down, arcade-only cabinet:
 players see a game list and one MENU button that always brings them back to it, and the
 operator gets a hidden OPERATOR button that opens a service menu in the same look.
 
@@ -700,6 +700,7 @@ Everything is written to `/tmp/arcadekiosk.log` (also readable in **View log**).
 
 | Version | Date | Changes |
 |---|---|---|
+| 2.4.2 | 2026-11-14 | The log shows, for games that keep NVRAM, which core and save file they use, and whether the save file was actually written when the game was quit. |
 | 2.4.1 | 2026-11-14 | Big games that take a while to load (blahm1d's Midway cores, for example) are waited for instead of given up on after 12 s (`launch_max_s`); held credits and demo time count from when the game is up; a MENU press while a game is loading is no longer lost. Kiosk build: saves NVRAM for cores that only save from their own "Save NVRAM" item. |
 | 2.4 | 2026-11-14 | NVRAM saved on every quit by default (`save_nvram = always`; older installs moved over once). Kiosk build switches on every core's "Autosave Hiscores" option. |
 | 2.3 | 2026-11-14 | Single-game mode. Controller setup wizard (buttons 1–6, Start, Coin; no MiSTer menu or mouse steps). The 240p Test Suite launcher is gone again. |

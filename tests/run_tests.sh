@@ -37,6 +37,6 @@ run test_update.py base
 run test_monitor.py base
 run test_controls.py base
 run test_single.py base
-run test_loading.py base
+run test_loading.py base nvram_extra
 
 [ $fail = 0 ] && echo "ALL TESTS PASSED" || { echo "SOME TESTS FAILED"; exit 1; }

@@ -55,6 +55,7 @@ import re
 import select
 import shutil
 import struct
+import zlib
 import subprocess
 import threading
 import textwrap
@@ -67,7 +68,7 @@ sys.path.insert(0, HERE)
 from font8x8 import FONT  # noqa: E402
 import monitor_test  # noqa: E402
 
-VERSION = "2.4.1"
+VERSION = "2.4.2"
 
 CONFIG_PATH = os.path.join(HERE, "kiosk.ini")
 STATE_PATH = os.path.join(HERE, "state.json")
@@ -2224,6 +2225,43 @@ def main_cmdline():
     return None
 
 
+def mra_nvram_info(path):
+    """(core, nvram index, nvram size, factory default in the .mra) for the log."""
+    try:
+        with open(path, "rb") as f:
+            raw = f.read(262144).decode("utf-8", "replace")
+    except OSError:
+        return None
+    rbf = _regex_text(raw, "rbf")
+    m = re.search(r"<nvram\b([^>]*)>", raw, re.I)
+    if not m:
+        return (rbf, None, None, False)
+    idx = re.search(r"index\s*=\s*\"?(\w+)", m.group(1))
+    size = re.search(r"size\s*=\s*\"?(\w+)", m.group(1))
+    idx = idx.group(1) if idx else "?"
+    factory = bool(re.search(r"<rom\b[^>]*\bindex\s*=\s*\"?%s\b" % re.escape(idx), raw, re.I))
+    return (rbf, idx, size.group(1) if size else "?", factory)
+
+
+def file_state(path):
+    """(size, mtime, all zero, crc) of a save file, or None if there isn't one."""
+    try:
+        st = os.stat(path)
+        with open(path, "rb") as f:
+            data = f.read()
+    except OSError:
+        return None
+    return (st.st_size, st.st_mtime, not data.strip(b"\0"), zlib.crc32(data) & 0xFFFFFFFF)
+
+
+def describe_file(stt):
+    if stt is None:
+        return "none"
+    return "%d bytes%s, crc %08x, saved %s" % (
+        stt[0], " ALL ZERO" if stt[2] else "", stt[3],
+        time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(stt[1])))
+
+
 def main_loading(path):
     """True while the MiSTer main program has been started for this game (it is
     loading the core and ROMs, which takes a while for big sets such as the Midway
@@ -3164,6 +3202,12 @@ class Kiosk:
 
     def launch(self, game):
         log("launching %s" % game["path"])
+        if game.get("nvram"):
+            info = mra_nvram_info(game["path"])
+            if info:
+                log("nvram: core %s, index %s, %s bytes, factory default in .mra: %s; save file %s" % (
+                    info[0] or "?", info[1], info[2], "yes" if info[3] else "no",
+                    describe_file(file_state(self.nvram_file(game)))))
         self.view.overlay = "LOADING\n" + game["label"][:30]
         self.draw()
         self.state["last"] = game["path"]
@@ -3253,8 +3297,27 @@ class Kiosk:
             # Kiosk build of the MiSTer main program: save directly, nothing on
             # screen, so it can happen on every quit.
             log("nvram: saving for %s (command)" % g["label"])
+            path = self.nvram_file(g)
+            before = file_state(path)
             mister_cmd("save_nvram", quiet=True)
-            time.sleep(0.2)
+            # The MiSTer may first fire the core's own Save NVRAM item (up to
+            # 0.5 s), then reads the NVRAM and writes the file.
+            after = before
+            deadline = time.monotonic() + 1.5
+            while time.monotonic() < deadline:
+                time.sleep(0.1)
+                after = file_state(path)
+                if after != before and after is not None:
+                    time.sleep(0.1)
+                    after = file_state(path)
+                    break
+            if after == before:
+                log("nvram: %s NOT written (still %s)%s" % (
+                    os.path.basename(path), describe_file(before),
+                    "" if "nvram_trigger" in main_features() else
+                    "; this MiSTer main program can't save cores that need their Save NVRAM item"))
+            else:
+                log("nvram: %s written: %s" % (os.path.basename(path), describe_file(after)))
             return
         played = time.monotonic() - self.game_started
         good = self.state.setdefault("nvram_good", [])

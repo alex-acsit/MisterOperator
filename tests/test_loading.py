@@ -134,4 +134,37 @@ check(k.attract_seen_core and not cmds, "demo up: shown for its full minute from
 k.attract_shown -= 61; k.poll_core(time.monotonic())
 check(cmds and cmds[-1].startswith("load_core"), "then on to the next demo")
 
+# ---- NVRAM diagnostics in the log
+import os
+k.stop_attract(); newcore("MENU"); k.poll_core(time.monotonic())
+check(k.mode == "launcher", "back on the list after the demo")
+K.main_features = lambda: {"save_nvram", "nvram_trigger"}
+nv = [x for x in k.all_games() if x.get("nvram")][0]
+os.makedirs(K.load_config()["nvram_dir"], exist_ok=True)
+k.cfg["nvram_dir"] = K.load_config()["nvram_dir"]
+path = k.nvram_file(nv)
+open(path, "wb").write(b"\0" * 64)
+def cmd_writes(t, quiet=False):
+    cmds.append(t)
+    if t == "save_nvram":
+        open(path, "wb").write(b"\1" * 64)
+    return True
+K.mister_cmd = cmd_writes
+g = nv; args["v"] = ["/media/fat/MiSTer", "x.rbf", nv["path"]]
+launch(); newcore("nba"); k.poll_core(time.monotonic())
+logtxt = open(K.LOG_PATH).read()
+check("factory default in .mra" in logtxt and "ALL ZERO" in logtxt, "launch logs the core, NVRAM layout and save file state")
+ev((1, 0x129, 1)); ev((1, 0x129, 0))
+check("written: 64 bytes" in open(K.LOG_PATH).read(), "save on quit: file written, logged")
+newcore("MENU"); k.poll_core(time.monotonic())
+K.mister_cmd = lambda t, quiet=False: cmds.append(t) or True
+K.main_features = lambda: {"save_nvram"}
+launch(); newcore("nba"); k.poll_core(time.monotonic())
+t0 = time.monotonic(); ev((1, 0x129, 1)); ev((1, 0x129, 0))
+logtxt = open(K.LOG_PATH).read()
+check("NOT written" in logtxt and "can't save cores that need their Save NVRAM item" in logtxt,
+      "save on quit: file unchanged, logged with a hint for an old main program")
+check(time.monotonic() - t0 < 2.5, "gives up waiting after 1.5 s")
+newcore("MENU"); k.poll_core(time.monotonic())
+
 print("%d failure(s)" % fails)
