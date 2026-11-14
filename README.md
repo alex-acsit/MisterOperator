@@ -48,6 +48,9 @@ the MiSTer besides the kiosk · **[Manual](MANUAL.md)**
 <p align="center">
   <img src="docs/tests.png" width="98%" alt="Input test, colour bars and linearity pattern in the operator menu">
 </p>
+<p align="center">
+  <img src="docs/controls.png" width="66%" alt="Controller setup wizard and the single-game page">
+</p>
 
 ## Install
 
@@ -61,8 +64,9 @@ the MiSTer besides the kiosk · **[Manual](MANUAL.md)**
      root of the SD card, and run **install_arcade_kiosk** from the Scripts menu.
 2. Copy the lines from `arcade_kiosk/MiSTer_ini_additions.txt` into `/media/fat/MiSTer.ini`.
    `fb_terminal=1` is required; the `[menu]` section gives the list 15 kHz output.
-3. In the stock MiSTer menu, map your encoder and give the OSD **Menu** function to the
-   button that will be the player MENU button.
+3. In the stock MiSTer menu, give the OSD **Menu** function to the button that will be
+   the player MENU button. (Map the rest of the encoder there too, or later with
+   **Controller setup** in the operator menu.)
 4. Reboot. The list asks you to press the **player MENU** button, then the **OPERATOR**
    button. Done.
 
