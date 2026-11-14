@@ -1,17 +1,14 @@
 """MisterOperator: monitor test patterns and a live input tester for the
-operator menu, plus finding the 240p Test Suite on the SD card.
+operator menu.
 
 The patterns follow the ones in Artemio Urbina's 240p Test Suite (grid,
 colour bars, black and white level, grey ramps, purity, overscan,
 linearity, sharpness). They are drawn by the kiosk at the menu core's
 resolution and refresh (320x240, 15 kHz with the [menu] video_mode in
 MiSTer.ini), straight onto the raster, so a TATE monitor sees them exactly
-as a YOKO one does. For tests at a console's own 240p timing, launch the
-real suite (TEST SUITE in the operator menu).
+as a YOKO one does.
 """
 
-import os
-import re
 import time
 
 BLACK = (0, 0, 0)
@@ -514,95 +511,3 @@ def analog_text(dev, rel):
     if rel and any(rel):
         parts.append("SPIN X%+d Y%+d" % (rel[0], rel[1]))
     return " ".join(parts[:6])
-
-
-# ---------------------------------------------------------------------------
-# The 240p Test Suite (a console ROM, run on its MiSTer core)
-# ---------------------------------------------------------------------------
-# (system, rbf names, rom extensions, games folders, file slot for each rbf)
-# The slot is the number after "FS" in the core's CONF_STR: MegaDrive and SNES
-# load cartridges into slot 1, the older Genesis core and NES into slot 0.
-SUITE_SYSTEMS = (
-    ("MEGA DRIVE", (("MegaDrive", 1), ("Genesis", 0)), (".bin", ".md", ".gen"),
-     ("MegaDrive", "Genesis")),
-    ("SNES", (("SNES", 1),), (".sfc", ".smc"), ("SNES",)),
-    ("NES", (("NES", 0),), (".nes",), ("NES",)),
-)
-FAT = "/media/fat"
-SUITE_DIR_NAME = "testsuite"          # arcade_kiosk/testsuite/ for dropping ROMs in
-
-
-def find_rbf(name, fat=FAT):
-    """'_Console/MegaDrive' if a MegaDrive_YYYYMMDD.rbf (or MegaDrive.rbf) is there."""
-    for folder in ("_Console", "_console"):
-        d = os.path.join(fat, folder)
-        try:
-            files = os.listdir(d)
-        except OSError:
-            continue
-        pat = re.compile(r"^%s(_\d{8})?\.rbf$" % re.escape(name), re.I)
-        if any(pat.match(f) for f in files):
-            return "%s/%s" % (folder, name)
-    return None
-
-
-def _find_roms(dirs, exts, depth=3):
-    found = []
-    for top in dirs:
-        top_depth = top.rstrip("/").count("/")
-        for root, sub, files in os.walk(top):
-            if root.count("/") - top_depth >= depth:
-                sub[:] = []
-            for f in files:
-                if "240p" in f.lower() and f.lower().endswith(exts):
-                    found.append(os.path.join(root, f))
-    return sorted(found)
-
-
-def find_test_suite(setting="", kiosk_dir=None, fat=FAT):
-    """Work out what TEST SUITE launches.
-
-    setting is kiosk.ini's test_suite: blank to search the SD card, a path to an
-    .mgl to launch as it is, or a path to the suite's ROM.
-    Returns {"system", "rbf", "rom", "index", "mgl"} or None. "mgl" is set when an
-    existing .mgl file is used; otherwise rbf/rom/index say what to write."""
-    setting = (setting or "").strip()
-    if setting:
-        path = setting if setting.startswith("/") else os.path.join(fat, setting)
-        if path.lower().endswith(".mgl"):
-            return {"system": "MGL", "mgl": path} if os.path.exists(path) else None
-        if not os.path.exists(path):
-            return None
-        for system, rbfs, exts, folders in SUITE_SYSTEMS:
-            if path.lower().endswith(exts):
-                for name, index in rbfs:
-                    rbf = find_rbf(name, fat)
-                    if rbf:
-                        return {"system": system, "rbf": rbf, "rom": path, "index": index, "mgl": None}
-        return None
-    for system, rbfs, exts, folders in SUITE_SYSTEMS:
-        core = None
-        for name, index in rbfs:
-            rbf = find_rbf(name, fat)
-            if rbf:
-                core = (rbf, index)
-                break
-        if not core:
-            continue
-        dirs = [os.path.join(fat, "games", f) for f in folders]
-        dirs += [os.path.join("/media/usb0/games", f) for f in folders]
-        if kiosk_dir:
-            dirs.insert(0, os.path.join(kiosk_dir, SUITE_DIR_NAME))
-        roms = _find_roms([d for d in dirs if os.path.isdir(d)], exts)
-        if roms:
-            return {"system": system, "rbf": core[0], "rom": roms[-1], "index": core[1], "mgl": None}
-    return None
-
-
-def suite_mgl(info):
-    """The MGL text that loads the suite's ROM on its core."""
-    from xml.sax.saxutils import quoteattr
-    return ('<mistergamedescription>\n'
-            '  <rbf>%s</rbf>\n'
-            '  <file delay="2" type="f" index="%d" path=%s/>\n'
-            '</mistergamedescription>\n') % (info["rbf"], info["index"], quoteattr(info["rom"]))

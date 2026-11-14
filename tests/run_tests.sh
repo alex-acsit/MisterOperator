@@ -35,5 +35,7 @@ run test_operator2.py base
 run test_fork.py base nvram_extra
 run test_update.py base
 run test_monitor.py base
+run test_controls.py base
+run test_single.py base
 
 [ $fail = 0 ] && echo "ALL TESTS PASSED" || { echo "SOME TESTS FAILED"; exit 1; }

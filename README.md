@@ -8,7 +8,7 @@ the MiSTer is reachable while the cabinet is locked.
 
 ![The game list on a landscape (YOKO) and a vertical (TATE) monitor](docs/screens.png)
 
-**Version 2.2** · for 15 kHz CRTs and HDMI · USB arcade encoders · nothing to install on
+**Version 2.3** · for 15 kHz CRTs and HDMI · USB arcade encoders · nothing to install on
 the MiSTer besides the kiosk · **[Manual](MANUAL.md)**
 
 ## Features
@@ -25,8 +25,10 @@ the MiSTer besides the kiosk · **[Manual](MANUAL.md)**
   and idle timers, which games and genres are listed, screen and theme, play counts,
   NVRAM, a game's DIP switches, updates and reboot
 - **Monitor and input tests** in the operator menu: grid, convergence, colour bars,
-  black/white level, grey ramps, purity, overscan, linearity and sharpness patterns, a live
-  tester for every button and stick, and a one-press launch of the 240p Test Suite
+  black/white level, grey ramps, purity, overscan, linearity and sharpness patterns, and a
+  live tester for every button and stick
+- **Controller setup wizard**: stick, buttons 1–6, player Start and Coin, one press each
+- **Single-game mode**: lock the cabinet to one game from power-on until OPERATOR is held
 - **Attract mode** plays demos when the cabinet is idle; **idle games quit** by themselves
 - Game settings and high scores (NVRAM) are saved, so no CMOS errors on games like NBA Jam
 - **Updates over the internet**: from the operator menu, the Scripts menu, or automatically

@@ -1,6 +1,6 @@
 # MisterOperator manual
 
-Version 2.2. MisterOperator turns a MiSTer FPGA into a locked-down, arcade-only cabinet:
+Version 2.3. MisterOperator turns a MiSTer FPGA into a locked-down, arcade-only cabinet:
 players see a game list and one MENU button that always brings them back to it, and the
 operator gets a hidden OPERATOR button that opens a service menu in the same look.
 
@@ -207,9 +207,10 @@ Every change is saved to `kiosk.ini` at once and keeps its comments.
 | **Play counts** | How many times each game has been played from the list, most played first. |
 | **Reset NVRAM** | Lists the games with saved NVRAM. Button 1 twice wipes that game's settings and high scores. |
 | **Rescan games** | Re-reads the arcade folder (after adding or removing games). |
+| **Single game** | Locks the cabinet to one game (see [4.6](#46-single-game-mode)). Shows OFF or the game. |
+| **Controller setup** | Sets up a controller, one press per control (see [4.7](#47-controller-setup)). |
 | **Monitor test** | Full-screen test patterns for adjusting the monitor (see [4.5](#45-monitor-and-input-tests)). |
 | **Input test** | Shows every button and stick as it's pressed (see [4.5](#45-monitor-and-input-tests)). |
-| **240p test suite** | Runs the 240p Test Suite on its console core, if its ROM is on the SD card. Shows which system it found, or NOT FOUND. Hold OPERATOR to come back. |
 | **View log** | The end of `/tmp/arcadekiosk.log`. Up/down scrolls, left/right pages. |
 | **MiSTer menu** | The stock MiSTer menu, for anything else. Hold OPERATOR to come back. |
 | **MiSTer main** | KIOSK, STOCK or OLD: which MiSTer main program is running. Installs or updates the kiosk build (see [6](#6-kiosk-build-of-the-mister-main-program)). |
@@ -263,16 +264,47 @@ analogue values and spinner/trackball counts are shown too, and the last press i
 bottom. Every button is tested, MENU included, so to leave **hold any button for 3
 seconds** or tap OPERATOR. (Holding OPERATOR locks the cabinet, as everywhere.)
 
-**240p test suite.** For tests at a console's own 240p timing, and the suite's full set
-(including its own controller test, scroll and lag tests), the menu runs Artemio Urbina's
-[240p Test Suite](https://artemiourbina.itch.io/240p-test-suite). It isn't included; get
-the Mega Drive version (or SNES or NES) from its download page and copy the ROM to
-`games/MegaDrive/`, `games/SNES/`, `games/NES/` or `arcade_kiosk/testsuite/`. The kiosk
-looks for a file with `240p` in its name, prefers Mega Drive, then SNES, then NES, and
-needs that console's core in `_Console`. It then writes a small `.mgl` and starts it,
-unlocked: MENU opens the MiSTer menu, holding OPERATOR returns to the operator menu. To
-use a particular ROM or your own `.mgl`, set `test_suite` in `kiosk.ini`. After copying
-the ROM, use **Rescan games** to look again.
+### 4.6 Single-game mode
+
+**Single game** opens a list of every game, with **OFF: the game list** at the top and a `*`
+on the current choice. Button 1 picks one. From then on, whenever the cabinet is locked
+(**Back to games**, after holding OPERATOR, after a power cut) it starts that game
+straight away, with no game list:
+
+- MENU does nothing, and the game never quits for being idle.
+- If the game drops out on its own, it starts again.
+- Coins go straight into the game.
+- Hold OPERATOR for the operator menu as usual. **Back to games** goes back into the game.
+- If the game won't start three times in a row, the game list shows with a message, so
+  the cabinet isn't stuck reloading.
+
+Set **Single game** to OFF to get the game list back. The choice is saved as
+`single_game` in `kiosk.ini` (the path of the `.mra` or `.mgl`).
+
+### 4.7 Controller setup
+
+**Controller setup** sets up an arcade controller in one pass, without the MiSTer menu.
+Press each control as the screen asks: stick up, down, left and right, then **buttons 1
+to 6**, then **player Start**, then **Coin**. A picture of the panel lights up the control
+to press next (4 5 6 on the top row, 1 2 3 underneath, as in the standard layout).
+The first controller touched is the one being set up; set up player 2 by running it again
+on the other controller.
+
+- There are no MiSTer menu (OSD) or mouse steps, and buttons are asked for by number, not
+  as B/A/R/Y/X/L.
+- A tap of OPERATOR skips a step (buttons 2–6, Start and Coin can be skipped; the stick
+  and button 1 can't). MENU cancels without changing anything. A control already used is
+  refused.
+- At the end, Button 1 or Start saves. A tap of OPERATOR starts again.
+
+Saving writes the controller's MiSTer mapping (`config/inputs/input_<vid>_<pid>_v4.map`),
+used by the MiSTer menu and as every core's default: buttons 1–6 go in B, A, R, Y, X, L,
+Start in Start and Coin in Select, which is what `panel_layout` expects, so every game gets
+the standard layout. The mapping's other entries (such as the MiSTer menu button) are kept,
+the old file is backed up (`--restore-maps` puts it back), and games already set up for
+the controller get the new directions. It also updates `kiosk.ini` so the game list
+uses the same buttons: 1 and Start play, 2 and 3 change genre, 4 is the letter jump, Coin
+adds a credit, and a stick on unusual keys moves the list (`dir_keys`).
 
 ## 5. Features in detail
 
@@ -332,6 +364,7 @@ and Pause, Service, Test, Tilt and "Core credits" are left unmapped, so players 
 them. Before each game starts, the kiosk writes that game's MiSTer button mapping, taking
 your encoder's buttons from the mapping you made in the MiSTer menu.
 
+- **Controller setup** in the operator menu maps your encoder for this in one pass.
 - `panel_layout = B,A,R,Y,X,L` names the pad buttons that are panel 1–6 in your encoder's
   MiSTer mapping; `panel_start` and `panel_coin` do the same for Start and Coin.
 - `layout_1` … `layout_6` set the order for games with that many buttons.
@@ -458,7 +491,8 @@ starting with `;` are comments, and so is anything after a `;` on a line. Restar
 | Setting | Default | |
 |---|---|---|
 | `screen` | `yoko` | `tate_cw` / `tate_ccw` for a vertical monitor |
-| `test_suite` | blank | The 240p Test Suite: blank searches the SD card, or a ROM or `.mgl` path |
+| `single_game` | blank | Lock the cabinet to this game (path of an `.mra`/`.mgl`) |
+| `dir_keys` | blank | Extra keys that move the list, e.g. `KEY_R:up` (set by **Controller setup**) |
 | `theme` | `green` | `phosphor`, `classic`; plus `color_<name> = #RRGGBB` |
 | `title` | `ARCADE` | Heading on the list |
 | `footer_play` | `PRESS 1 TO PLAY` | Blinking footer text |
@@ -568,7 +602,6 @@ Over SSH (`root` / `1` by default), `python3 /media/fat/arcade_kiosk/arcadekiosk
 | Path | |
 |---|---|
 | `arcade_kiosk/arcadekiosk.py`, `font8x8.py`, `monitor_test.py` | The kiosk (`monitor_test.py`: test patterns, input test) |
-| `arcade_kiosk/testsuite/` | Optional place for the 240p Test Suite ROM |
 | `arcade_kiosk/kiosk.ini` | Settings |
 | `arcade_kiosk/state.json` | Lock state, credits, play counts, last game played |
 | `arcade_kiosk/run.sh` | Starts the kiosk at boot and restarts it if it stops |
@@ -594,7 +627,6 @@ Over SSH (`root` / `1` by default), `python3 /media/fat/arcade_kiosk/arcadekiosk
 | `/tmp/arcadekiosk.status` | What `--status` shows |
 | `/tmp/kiosk_active` | Present while the kiosk owns the screen (read by the kiosk build) |
 | `/tmp/MiSTer_features` | Written by the kiosk build at start-up |
-| `/tmp/misteroperator_240p.mgl` | Written when **240p test suite** starts |
 
 ## 11. Troubleshooting
 
@@ -616,8 +648,8 @@ Everything is written to `/tmp/arcadekiosk.log` (also readable in **View log**).
 | The kiosk build won't start | The safety net restores `MiSTer.stock` within 90 s. By hand: copy `MiSTer.stock` over `MiSTer` on the SD card. |
 | "Update check failed" | Check the MiSTer's network. While the GitHub repo is private, set `update_token`. The log has the details. |
 | A button or stick seems dead | **Input test** shows whether the kiosk sees it, and its code name. |
-| **240p test suite** says NOT FOUND | Check the ROM has `240p` in its name, is in one of the folders in [4.5](#45-monitor-and-input-tests), and the console's core is in `_Console`; then **Rescan games**. Or set `test_suite`. |
-| The 240p Test Suite opens the MiSTer file browser instead | The core loads ROMs into another slot. Make an `.mgl` for it and set `test_suite` to that file. |
+| A button does the wrong thing in games | Run **Controller setup** for that controller. |
+| The cabinet keeps starting the same game | **Single game** is on. Hold OPERATOR, set **Single game** to OFF. |
 | A new version misbehaves | `--rollback`, or copy a folder from `arcade_kiosk/backup/` back. |
 | Turn the kiosk off for good | Remove the `# Arcade Kiosk` lines from `/media/fat/linux/user-startup.sh`, and remove the kiosk build (section 6). Reboot. |
 
@@ -639,7 +671,8 @@ Everything is written to `/tmp/arcadekiosk.log` (also readable in **View log**).
 
 | Version | Date | Changes |
 |---|---|---|
-| 2.2 | 2026-11-14 | Operator menu: Monitor test (nine test patterns), Input test, and a 240p Test Suite launcher. |
+| 2.3 | 2026-11-14 | Single-game mode. Controller setup wizard (buttons 1–6, Start, Coin; no MiSTer menu or mouse steps). The 240p Test Suite launcher is gone again. |
+| 2.2 | 2026-11-14 | Operator menu: Monitor test (nine test patterns) and Input test. |
 | 2.1.1 | 2026-11-13 | The update script can replace itself safely, and upgrades 2.0.1 installs directly. |
 | 2.1 | 2026-11-13 | Operator menu: Show games (YOKO/TATE only) and a Genres page. Version in the footer instead of button hints. Updates over the internet (operator menu, Scripts menu, `--update`, `auto_update`). `#RRGGBB` colours in `kiosk.ini` now work. |
 | 2.0.1 | 2026-11-13 | Fixed booting to the MiSTer menu with the kiosk build; `.mgl` games work with it. |

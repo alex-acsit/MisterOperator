@@ -67,7 +67,7 @@ sys.path.insert(0, HERE)
 from font8x8 import FONT  # noqa: E402
 import monitor_test  # noqa: E402
 
-VERSION = "2.2"
+VERSION = "2.3"
 
 CONFIG_PATH = os.path.join(HERE, "kiosk.ini")
 STATE_PATH = os.path.join(HERE, "state.json")
@@ -90,7 +90,6 @@ FEATURES_PATH = "/tmp/MiSTer_features"    # written by that build at start-up
 KIOSK_BOOT_FLAG = "/media/fat/config/kiosk_boot"
 MAIN_BIN = "/media/fat/MiSTer"
 KIOSK_MAIN = os.path.join(HERE, "MiSTer_kiosk")
-SUITE_MGL = "/tmp/misteroperator_240p.mgl"   # written when TEST SUITE launches a ROM
 VIRTUAL_PHYS = "arcadekiosk/"
 
 # ---------------------------------------------------------------------------
@@ -309,7 +308,8 @@ DEFAULTS = {
     "inputs_dir": "/media/fat/config/inputs",
     "map_backup_dir": os.path.join(HERE, "map_backup"),
     "screen": "yoko",
-    "test_suite": "",
+    "dir_keys": "",
+    "single_game": "",
 }
 
 
@@ -1092,6 +1092,214 @@ class LauncherView:
                 c.text_center(c.w // 2, y + 9 + i * 12, l[:(w - 16) // 8], WHITE, PANEL)
 
 
+class ControllerWizard:
+    """CONTROLLER SETUP in the operator menu: press each control in turn
+    (stick up/down/left/right, buttons 1-6, player START, COIN) on one
+    controller. Unlike the MiSTer's own "define joystick buttons" there are no
+    MiSTer menu or mouse steps, and the buttons are asked for by their number
+    on the panel, not as B/A/R/Y/X/L. A tap of OPERATOR skips a step (not the
+    stick or button 1); MENU cancels."""
+
+    PROMPTS = {"UP": "PUSH THE STICK UP", "DOWN": "PUSH THE STICK DOWN",
+               "LEFT": "PUSH THE STICK LEFT", "RIGHT": "PUSH THE STICK RIGHT",
+               "START": "PRESS PLAYER START", "COIN": "PRESS COIN"}
+    AXES = (ABS_X, ABS_Y, ABS_HAT0X, ABS_HAT0Y)
+
+    def __init__(self, kiosk, opview):
+        self.k, self.op = kiosk, opview
+        self.restart()
+
+    def restart(self):
+        self.dev = None              # the controller being set up (first one touched)
+        self.idx = 0
+        self.assign = {}
+        self.wait_release = False
+        self.msg = None
+        self.msg_until = 0
+
+    @property
+    def done(self):
+        return self.idx >= len(WIZARD_STEPS)
+
+    def step(self):
+        return None if self.done else WIZARD_STEPS[self.idx]
+
+    def prompt(self):
+        st = self.step()
+        return self.PROMPTS.get(st, "PRESS BUTTON %s" % st)
+
+    def say(self, text, seconds=2.0):
+        self.msg, self.msg_until = text, time.monotonic() + seconds
+
+    def released(self, dev):
+        if dev.pressed:
+            return False
+        for a in self.AXES:
+            if a in dev.abs_state and self._axis(dev, a, dev.abs_state[a]):
+                return False
+        return True
+
+    def _axis(self, dev, a, v):
+        if a in (ABS_HAT0X, ABS_HAT0Y):
+            return (v > 0) - (v < 0)
+        info = dev.absinfo.get(a, (0, -1, 1, 0, 0, 0))
+        mid, span = (info[1] + info[2]) / 2.0, max(1, (info[2] - info[1]) / 2.0)
+        n = (v - mid) / span
+        return 1 if n > 0.6 else -1 if n < -0.6 else 0
+
+    def skip(self):
+        st = self.step()
+        if st is None:
+            self.restart()               # on the summary: start again
+            return
+        if st not in WIZARD_OPTIONAL:
+            self.say("THIS ONE CAN'T BE SKIPPED")
+            return
+        self.assign[st] = None
+        self.idx += 1
+        self.wait_release = False
+
+    def event(self, dev, t, c, v):
+        k = self.k
+        if t == EV_KEY and v == 1 and k.is_menu_btn(dev, c):
+            self.op.show_toast("CONTROLLER SETUP\nCANCELLED")
+            self.op.back()
+            return
+        if self.dev is not None and dev.path != self.dev:
+            if t == EV_KEY and v == 1:
+                self.say("USE THE SAME CONTROLLER")
+            return
+        if self.done:
+            if t == EV_KEY and v == 1 and c in (self.assign.get("1"), self.assign.get("START")):
+                self.save(dev)
+            return
+        if self.wait_release:
+            if self.released(dev):
+                self.wait_release = False
+            return
+        st = self.step()
+        code = None
+        if t == EV_KEY and v == 1:
+            code = c
+        elif t == EV_ABS and c in self.AXES and st in ("UP", "DOWN", "LEFT", "RIGHT"):
+            d = self._axis(dev, c, v)
+            if d:
+                code = axis_dir_code(c, d > 0)
+        if code is None:
+            return
+        for other, oc in self.assign.items():
+            if oc == code:
+                name = other if other in ("UP", "DOWN", "LEFT", "RIGHT", "START", "COIN") else "BUTTON " + other
+                self.say("ALREADY USED FOR %s" % name)
+                self.wait_release = True
+                return
+        if self.dev is None:
+            self.dev = dev.path
+            self.vidpid = (dev.vendor, dev.product)
+            self.name = "%s %s" % (dev.vidpid, dev.name)
+        self.assign[st] = code
+        self.idx += 1
+        self.wait_release = True
+        self.msg = None
+
+    def save(self, dev):
+        k = self.k
+        vid, pid = self.vidpid
+        files = save_controller_map(k.cfg, vid, pid, self.assign)
+        changes = wizard_settings(k.cfg, self.assign)
+        for key, val in changes.items():
+            try:
+                set_config_value(key, val)
+            except OSError as e:
+                log("controller setup: could not save %s: %s" % (key, e))
+            k.cfg[key] = val
+        k.load_button_lists()
+        log("controller setup saved: %d map file(s); kiosk.ini: %s" % (
+            len(files), ", ".join("%s=%s" % kv for kv in changes.items()) or "no change"))
+        self.op.show_toast("CONTROLLER SAVED" if files or changes else "NO CHANGES", 2.5)
+        self.op.back()
+
+    # -- drawing ------------------------------------------------------------------
+    def draw(self, c):
+        c.fill(0, 0, c.w, c.h, BG)
+        c.text(8, 5, "CONTROLS", AMBER, BG, scale=2)
+        c.fill(0, 24, c.w, 2, ACCENT)
+        chars = (c.w - 16) // 8
+        c.text(8, 30, (self.name if self.dev else "ANY CONTROLLER"), CYAN, BG, max_chars=chars)
+        if self.done:
+            c.text(8, 44, "ALL SET. SAVE?", WHITE, BG, scale=1)
+        else:
+            c.text(8, 42, "%d/%d" % (self.idx + 1, len(WIZARD_STEPS)), DIM, BG)
+            p = self.prompt()
+            scale = 2 if len(p) * 16 <= c.w - 16 else 1
+            c.text_center(c.w // 2, 54, p, WHITE, BG, scale=scale)
+        self.draw_panel(c, 78)
+        # what each step got
+        y = 78 + 74
+        col_w = (c.w - 16) // 2
+        per_col = (len(WIZARD_STEPS) + 1) // 2
+        for i, st in enumerate(WIZARD_STEPS):
+            x = 8 + (i // per_col) * col_w
+            yy = y + (i % per_col) * 9
+            if yy > c.h - 40:
+                continue
+            label = st if st in ("UP", "DOWN", "LEFT", "RIGHT", "START", "COIN") else "BUTTON " + st
+            if st in self.assign:
+                val, colr = wizard_code_name(self.assign[st]) if self.assign[st] is not None else "SKIPPED", TEXT
+            else:
+                val, colr = ("<<" if i == self.idx else ""), (AMBER if i == self.idx else DIM)
+            line = ("%-9s %s" % (label, val))[:col_w // 8 - 1]
+            c.text(x, yy, line, colr, BG)
+        fy = c.h - 14
+        c.fill(0, fy - 16, c.w, 1, LINE)
+        msg = self.msg if self.msg and time.monotonic() < self.msg_until else None
+        if self.done:
+            hint1, hint2 = "BUTTON 1/START: SAVE", "TAP OP: AGAIN  MENU: CANCEL"
+        else:
+            hint1 = msg or ("TAP OP: SKIP" if self.step() in WIZARD_OPTIONAL else "")
+            hint2 = "MENU: CANCEL"
+        c.text(8, fy - 12, hint1[:chars], AMBER if msg else DIM, BG)
+        c.text(8, fy, hint2[:chars], DIM, BG)
+
+    def draw_panel(self, c, y):
+        """A little control panel: stick, buttons 1-6, START and COIN, with the
+        one to press now lit up."""
+        cur = self.step()
+        def state(st):
+            if st == cur:
+                return "now"
+            if st in self.assign:
+                return "set" if self.assign[st] is not None else "skip"
+            return "todo"
+        def box(x, yy, w, h, st, label):
+            s_ = state(st)
+            if s_ == "now":
+                c.fill(x, yy, w, h, AMBER)
+                c.text_center(x + w // 2, yy + (h - 8) // 2, label, BG, AMBER)
+            elif s_ == "set":
+                c.fill(x, yy, w, h, ACCENT)
+                c.text_center(x + w // 2, yy + (h - 8) // 2, label, SELECT, ACCENT)
+            else:
+                c.frame(x, yy, w, h, LINE if s_ == "skip" else DIM)
+                c.text_center(x + w // 2, yy + (h - 8) // 2, label, DIM if s_ == "skip" else TEXT, BG)
+        total = 62 + 3 * 26 + 12 + 46
+        x0 = max(8, (c.w - total) // 2)
+        # stick: a cross of four arrows
+        sx, sy = x0, y + 8
+        for st, dx, dy, ch in (("UP", 1, 0, "^"), ("DOWN", 1, 2, "v"), ("LEFT", 0, 1, "<"), ("RIGHT", 2, 1, ">")):
+            box(sx + dx * 20, sy + dy * 18, 18, 16, st, ch)
+        c.fill(sx + 24, sy + 22, 10, 8, LINE)
+        # buttons as on the panel: 4 5 6 on top, 1 2 3 underneath
+        bx = x0 + 70
+        for i in range(6):
+            row = 1 if i < 3 else 0
+            box(bx + (i % 3) * 26, y + 10 + row * 26, 22, 22, str(i + 1), str(i + 1))
+        # start and coin
+        ox = bx + 3 * 26 + 10
+        box(ox, y + 10, 46, 18, "START", "START")
+        box(ox, y + 36, 46, 18, "COIN", "COIN")
+
+
 class OperatorView:
     """The operator menu, drawn in the kiosk's own theme.
 
@@ -1117,8 +1325,8 @@ class OperatorView:
         self.release = None          # newer release found by UPDATE KIOSK
         self.patterns = None         # monitor test patterns (page "patterns")
         self.inputs = None           # input tester (page "inputs")
+        self.wizard = None           # controller setup (page "controls")
         self.return_sel = 0          # main-page row to come back to
-        self._suite = False          # the 240p Test Suite, looked up when first needed
 
     # -- helpers ------------------------------------------------------------------
     @property
@@ -1186,10 +1394,10 @@ class OperatorView:
             ("PLAY COUNTS", lambda: ">", None, lambda: self.open_page("plays")),
             ("RESET NVRAM", lambda: ">", None, lambda: self.open_page("nvram")),
             ("RESCAN GAMES", lambda: "", None, self.rescan),
+            ("SINGLE GAME", self.single_text, None, lambda: self.open_page("single")),
+            ("CONTROLLER SETUP", lambda: ">", None, lambda: self.open_page("controls")),
             ("MONITOR TEST", lambda: ">", None, lambda: self.open_page("patterns")),
             ("INPUT TEST", lambda: ">", None, lambda: self.open_page("inputs")),
-            ("240P TEST SUITE", self.suite_text, None,
-             (lambda: k.operator_test_suite(self.suite())) if self.suite() else None),
             ("VIEW LOG", lambda: ">", None, lambda: self.open_page("log")),
             ("MISTER MENU", lambda: ">", None, k.operator_stock_menu),
             ("MISTER MAIN", self.main_text, None,
@@ -1286,6 +1494,15 @@ class OperatorView:
     def hidden(self):
         return _genre_set(self.cfg.get("hidden_genres", ""))
 
+    def single_text(self):
+        path = self.cfg.get("single_game", "").strip()
+        if not path:
+            return "OFF >"
+        for g in self.k.all_games():
+            if g["path"] == path:
+                return g["label"].upper() + " >"
+        return os.path.splitext(os.path.basename(path))[0].upper() + " >"
+
     def genres_text(self):
         n = len(self.hidden())
         return "ALL >" if not n else "%d HIDDEN >" % n
@@ -1320,29 +1537,19 @@ class OperatorView:
 
     def rescan(self):
         n = self.k.rescan_games()
-        self._suite = False
         self.show_toast("%d GAMES" % n)
 
-    def suite(self):
-        if self._suite is False:
-            try:
-                self._suite = monitor_test.find_test_suite(self.cfg.get("test_suite", ""), HERE)
-            except OSError as e:
-                log("test suite search failed: %s" % e)
-                self._suite = None
-        return self._suite
-
-    def suite_text(self):
-        s = self.suite()
-        return (s["system"] + " >") if s else "NOT FOUND"
-
-    TEST_PAGES = ("patterns", "inputs")
+    TEST_PAGES = ("patterns", "inputs", "controls")
 
     def test_input(self, dev, t, c, v, now):
         """Every control goes here while a test page is up."""
         k = self.k
         if self.page == "inputs":
             self.inputs.event(dev, t, c, v, now, code_name)
+            k.need_redraw = True
+            return
+        if self.page == "controls":
+            self.wizard.event(dev, t, c, v)
             k.need_redraw = True
             return
         dirn = k._direction_from(dev, t, c, v)
@@ -1393,13 +1600,25 @@ class OperatorView:
             self.return_sel = self.sel
         self.page, self.sel, self.top, self.confirm = page, 0, 0, None
         k = self.k
-        if page == "patterns":
+        if page == "controls":
+            self.wizard = ControllerWizard(k, self)
+            log("operator menu: controller setup")
+        elif page == "patterns":
             self.patterns = monitor_test.Patterns(Canvas, screen_rotation(self.cfg))
             self._label_on = None
             log("operator menu: monitor test")
         elif page == "inputs":
             self.inputs = monitor_test.InputTest(k)
             log("operator menu: input test")
+        elif page == "single":
+            cur = self.cfg.get("single_game", "").strip()
+            games = sorted(k.all_games(), key=lambda g: g["label"].lower())
+            self.lines = [("%s OFF: THE GAME LIST" % ("*" if not cur else " "), "")]
+            for g in games:
+                self.lines.append(("%s %s" % ("*" if g["path"] == cur else " ", g["label"].upper()), g["path"]))
+            for i, (_, ref) in enumerate(self.lines):
+                if ref == cur:
+                    self.sel = i
         elif page == "plays":
             plays = k.state.get("plays", {})
             names = {g["path"]: g["label"] for g in k.all_games()}
@@ -1435,7 +1654,7 @@ class OperatorView:
             self.confirm = None
         elif self.page != "main":
             self.page, self.sel, self.top = "main", self.return_sel, 0
-            self.patterns = self.inputs = None
+            self.patterns = self.inputs = self.wizard = None
             self.k.dir_state.clear()
             self.k.repeat.clear()
         else:
@@ -1483,6 +1702,16 @@ class OperatorView:
                         return
                 self.confirm = None
                 action()
+        elif self.page == "single":
+            text, path = self.lines[self.sel]
+            self.set("single_game", path)
+            sel = self.sel
+            self.open_page("single")
+            self.sel = sel
+            if path:
+                self.show_toast("ON LOCK, ONLY\n" + text[2:][:22], 2.5)
+            else:
+                self.show_toast("GAME LIST BACK ON", 2)
         elif self.page == "genres":
             text, name = self.lines[self.sel]
             sel = self.sel
@@ -1508,13 +1737,16 @@ class OperatorView:
             # normally drawn straight onto the screen by Kiosk.draw()
             self.patterns.draw(c)
             return
+        if self.page == "controls":
+            self.wizard.draw(c)
+            return
         if self.page == "inputs":
             self.inputs.draw(c, (BG, PANEL, LINE, ACCENT, AMBER, CYAN, TEXT, DIM, SELECT),
                              time.monotonic(), code_name, self.k.devices.values())
             return
         c.fill(0, 0, c.w, c.h, BG)
         title = {"main": "OPERATOR", "plays": "PLAYS", "nvram": "NVRAM", "log": "LOG",
-                 "genres": "GENRES"}[self.page]
+                 "genres": "GENRES", "single": "ONE GAME"}[self.page]
         c.text(8, 5, title, AMBER, BG, scale=2)
         tag = "UNLOCKED"
         c.text(c.w - 8 - len(tag) * 8, 10, tag, ACCENT, BG)
@@ -1569,7 +1801,7 @@ class OperatorView:
                     break
                 text, ref = self.lines[i]
                 y = self.LIST_Y + r * self.ROW_H
-                selected = i == self.sel and self.page in ("nvram", "genres") and ref is not None
+                selected = i == self.sel and self.page in ("nvram", "genres", "single") and ref is not None
                 if self.page == "nvram" and i == self.sel and ref is not None and self.confirm == ref["path"]:
                     text = "PRESS 1 AGAIN TO RESET"
                 if selected:
@@ -1596,6 +1828,8 @@ class OperatorView:
             hint1, hint2 = "1:RESET THIS GAME", "2:BACK"
         elif self.page == "genres":
             hint1, hint2 = "1:SHOW/HIDE", "2:BACK"
+        elif self.page == "single":
+            hint1, hint2 = "1:CHOOSE  </>:PAGE", "2:BACK"
         else:
             hint1, hint2 = "UP/DOWN:SCROLL", "2:BACK"
         c.text(8, fy - 12, hint1[:chars], DIM, BG)
@@ -2265,6 +2499,161 @@ def _note_created(path, backup_dir):
         pass
 
 
+# ---------------------------------------------------------------------------
+# Controller setup wizard: what it writes
+# ---------------------------------------------------------------------------
+# The steps, in order. Panel buttons are numbered 1-6 (4 5 6 on the top row,
+# 1 2 3 underneath, as in the standard layout); they're stored in the MiSTer's pad slots B,A,R,Y,X,L,
+# which is what panel_layout says, so every game gets the same 1-6 layout.
+WIZARD_STEPS = ("UP", "DOWN", "LEFT", "RIGHT", "1", "2", "3", "4", "5", "6", "START", "COIN")
+WIZARD_SLOTS = {"UP": "UP", "DOWN": "DOWN", "LEFT": "LEFT", "RIGHT": "RIGHT",
+                "1": "B", "2": "A", "3": "R", "4": "Y", "5": "X", "6": "L",
+                "START": "START", "COIN": "SELECT"}
+WIZARD_OPTIONAL = {"2", "3", "4", "5", "6", "START", "COIN"}
+STD_PANEL = {"panel_layout": "B,A,R,Y,X,L", "panel_start": "Start", "panel_coin": "Select"}
+STD_DIRS = {KEY_UP: "up", KEY_DOWN: "down", KEY_LEFT: "left", KEY_RIGHT: "right"}
+
+
+def axis_dir_code(axis, positive):
+    """The code the MiSTer gives a stick or hat direction (KEY_EMU + 2*axis, +1
+    for the positive side), as it stores it in a map."""
+    return KEY_EMU + (axis << 1) + (1 if positive else 0)
+
+
+def wizard_code_name(code):
+    if code is None:
+        return "-"
+    if code >= KEY_EMU:
+        a, pos = (code - KEY_EMU) >> 1, (code - KEY_EMU) & 1
+        name = {ABS_X: "X", ABS_Y: "Y", ABS_HAT0X: "HATX", ABS_HAT0Y: "HATY"}.get(a, "AXIS%d" % a)
+        return name + ("+" if pos else "-")
+    n = code_name(code)
+    for pre in ("BTN_", "KEY_"):
+        if n.startswith(pre):
+            return n[len(pre):]
+    return n
+
+
+def _write_map_file(path, words, backup_dir, log_fn):
+    """Put the 38 map words into a map file, keeping anything after them (the
+    v4 format's extra fields) and backing the old file up first."""
+    try:
+        with open(path, "rb") as f:
+            old = f.read()
+        _backup_map(path, backup_dir)
+    except OSError:
+        old = b""
+        _note_created(path, backup_dir)
+    data = struct.pack("<%dI" % MAP_SLOTS, *words) + old[MAP_SLOTS * 4:]
+    if data == old:
+        return False
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path + ".tmp", "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(path + ".tmp", path)
+        return True
+    except OSError as e:
+        log_fn("controller setup: could not write %s: %s" % (path, e))
+        return False
+
+
+def save_controller_map(cfg, vid, pid, assign, log_fn=None):
+    """Write the wizard's answers into the MiSTer's own mapping for this
+    controller (input_<vid>_<pid>_v4.map, used by the menu and as every core's
+    default). Slots the wizard doesn't ask about (the MiSTer menu button,
+    mouse emulation, analogue settings) are kept as they were. Existing game
+    maps for the controller get the new directions too.
+    assign: step -> code, or None for a skipped step. Returns the files written."""
+    log_fn = log_fn or log
+    inputs, backup = cfg["inputs_dir"], cfg["map_backup_dir"]
+    written = []
+    for dev_id in device_ids(inputs, vid, pid):
+        stem = "input_" + dev_id
+        _, words = find_map(inputs, stem)
+        words = list(words) if words else [0] * MAP_SLOTS
+        for step, slot in WIZARD_SLOTS.items():
+            if step in assign:
+                words[PAD_SLOTS[slot]] = assign[step] or 0
+        path = os.path.join(inputs, stem + "_v4.map")
+        if _write_map_file(path, words, backup, log_fn):
+            written.append(path)
+        # games already set up for this controller: give them the new directions
+        try:
+            names = sorted(os.listdir(inputs))
+        except OSError:
+            names = []
+        pat = re.compile(r"^.+_input_%s_v[34]\.map$" % re.escape(dev_id))
+        for n in names:
+            if not pat.match(n):
+                continue
+            gp = os.path.join(inputs, n)
+            gw = read_map(gp)
+            if not gw:
+                continue
+            for step in ("RIGHT", "LEFT", "DOWN", "UP"):
+                if step in assign:
+                    gw[PAD_SLOTS[step]] = assign[step] or 0
+            if _write_map_file(gp, gw, backup, log_fn):
+                written.append(gp)
+    log_fn("controller setup %04x:%04x: %s" % (vid, pid, ", ".join(
+        "%s=%s" % (st, wizard_code_name(assign.get(st))) for st in WIZARD_STEPS if st in assign)))
+    return written
+
+
+def wizard_settings(cfg, assign):
+    """kiosk.ini changes so the list and operator menu use the same buttons:
+    button 1 and START play, 2/3 step through genres, 4 is the letter jump,
+    COIN adds a credit, and directions on unusual keys still move the list."""
+    roles = {"launch_buttons": ("1", "START"), "genre_buttons": ("2",),
+             "genre_back_buttons": ("3",), "letter_buttons": ("4",), "coin_buttons": ("COIN",)}
+    mine = {}
+    for key, steps in roles.items():
+        for st in steps:
+            c = assign.get(st)
+            if c is not None and c < KEY_EMU:
+                mine.setdefault(c, key)
+    out = {}
+    for key in roles:
+        try:
+            codes = [c for c in (parse_code(x) for x in cfg.get(key, "").split(",")) if c is not None]
+        except ValueError:
+            codes = []
+        keep = [c for c in codes if mine.get(c, key) == key]
+        for c, k in mine.items():
+            if k == key and c not in keep:
+                keep.append(c)
+        out[key] = ",".join(code_name(c) for c in keep)
+    dirs = []
+    for st in ("UP", "DOWN", "LEFT", "RIGHT"):
+        c = assign.get(st)
+        if c is not None and c < KEY_EMU and STD_DIRS.get(c) != st.lower() \
+                and not (BTN_DPAD_UP <= c <= BTN_DPAD_RIGHT):
+            dirs.append("%s:%s" % (code_name(c), st.lower()))
+    out["dir_keys"] = ",".join(dirs)
+    out.update(STD_PANEL)
+    return {k: v for k, v in out.items() if cfg.get(k, "") != v}
+
+
+def parse_dir_keys(text):
+    """'KEY_R:up,KEY_F:down' -> {code: ('y', -1), ...}"""
+    out = {}
+    names = {"up": ("y", -1), "down": ("y", 1), "left": ("x", -1), "right": ("x", 1)}
+    for part in text.split(","):
+        if ":" not in part:
+            continue
+        k, d = part.split(":", 1)
+        try:
+            c = parse_code(k)
+        except ValueError:
+            continue
+        if c is not None and d.strip().lower() in names:
+            out[c] = names[d.strip().lower()]
+    return out
+
+
 def restore_maps(cfg):
     """Put back every map the kiosk changed, and delete the ones it created."""
     inputs, backup = cfg["inputs_dir"], cfg["map_backup_dir"]
@@ -2341,13 +2730,18 @@ class Kiosk:
         self.attract_seen_core = False
         self.attract_stamp = None
         self.attract_recent = []
+        self.single_fails = 0           # single game: failed starts in a row
 
+        self.load_button_lists()
+        self.reload_buttons()
+
+    def load_button_lists(self):
         self.launch_buttons = parse_code_list(self.cfg["launch_buttons"])
         self.genre_buttons = parse_code_list(self.cfg["genre_buttons"])
         self.genre_back_buttons = parse_code_list(self.cfg["genre_back_buttons"])
         self.letter_buttons = parse_code_list(self.cfg["letter_buttons"])
         self.coin_buttons = parse_code_list(self.cfg["coin_buttons"])
-        self.reload_buttons()
+        self.dir_keys = parse_dir_keys(self.cfg.get("dir_keys", ""))
 
     # -- config -------------------------------------------------------------
     def reload_buttons(self):
@@ -2612,6 +3006,32 @@ class Kiosk:
         self.mode = S_LAUNCHER
         self.need_redraw = True
         self.write_status()
+        g = self.single_game()
+        if g and self.state["locked"] and not self.setup_step:
+            if self.single_fails >= 3:
+                self.view.show_toast("COULD NOT START\n" + g["label"][:24], 30)
+                log("single game: %s failed to start 3 times; showing the list" % g["path"])
+                self.single_fails = 0
+                return
+            log("single game: starting %s" % g["label"])
+            self.launch(g)
+
+    def single_game(self):
+        """The game the cabinet is locked to (kiosk.ini single_game), or None."""
+        path = self.cfg.get("single_game", "").strip()
+        if not path:
+            return None
+        games = self.view.all_games if self.view else []
+        for g in games:
+            if g["path"] == path:
+                return g
+        if not os.path.exists(path):
+            if not getattr(self, "_single_missing", False):
+                log("single game %s not found; showing the game list" % path)
+                self._single_missing = True
+            return None
+        name = os.path.splitext(os.path.basename(path))[0]
+        return {"path": path, "label": name, "file": os.path.basename(path)}
 
     # -- coins ------------------------------------------------------------------
     # Coins put in on the game list (or during a demo) are held, shown on screen,
@@ -3028,31 +3448,6 @@ class Kiosk:
         mister_cmd("load_core %s" % g["path"])
         self.write_status()
 
-    def operator_test_suite(self, info):
-        """Run the 240p Test Suite on its console core, unlocked like GAME SETTINGS:
-        holding OPERATOR comes back to the operator menu."""
-        if info.get("mgl"):
-            path = info["mgl"]
-        else:
-            path = SUITE_MGL
-            try:
-                with open(path, "w") as f:
-                    f.write(monitor_test.suite_mgl(info))
-            except OSError as e:
-                log("cannot write %s: %s" % (path, e))
-                if self.opview:
-                    self.opview.show_toast("COULD NOT START\nTHE TEST SUITE")
-                return
-        log("operator menu: 240p test suite (%s, %s)" % (info["system"], info.get("rom") or path))
-        self.mode = S_UNLOCKED
-        self.sync_flag()                        # before the new main program starts
-        self.release_framebuffer()
-        self.opview = None
-        self.current_game = None
-        self.mode = S_UNLOCKED
-        mister_cmd("load_core %s" % path)
-        self.write_status()
-
     def operator_stock_menu(self):
         log("operator menu: stock MiSTer menu")
         if self.mode == S_GAME:
@@ -3228,6 +3623,10 @@ class Kiosk:
                         if self.mode == S_LAUNCHER and self.view:
                             self.view.show_toast("HOLD THE OPERATOR\nBUTTON TO UNLOCK", 2)
                             self.need_redraw = True
+                        elif on_test and self.opview.page == "controls":
+                            self.opview.wizard.skip()     # a tap skips this step
+                            self.op_activity = now
+                            self.need_redraw = True
                         elif on_test:
                             self.opview.inputs and self.opview.inputs.held.clear()
                             self.opview.back()            # a tap leaves the test
@@ -3254,6 +3653,8 @@ class Kiosk:
                 continue
 
             if self.mode == S_GAME and t == EV_KEY and self.is_menu_btn(dev, c) and self.state["locked"]:
+                if self.cfg.get("single_game", "").strip():
+                    continue                     # locked to one game: MENU does nothing
                 hold = int(self.cfg["menu_hold_ms"]) / 1000.0
                 if v == 1:
                     self.menu_down_at = now
@@ -3308,6 +3709,10 @@ class Kiosk:
                        BTN_DPAD_LEFT: ("x", -1), BTN_DPAD_RIGHT: ("x", 1)}
             if c in mapping:
                 axis, d = mapping[c]
+                return axis, (d if v else 0)
+            dk = getattr(self, "dir_keys", None)
+            if dk and c in dk:
+                axis, d = dk[c]
                 return axis, (d if v else 0)
         elif t == EV_ABS and c in (ABS_X, ABS_Y, ABS_HAT0X, ABS_HAT0Y):
             axis = "x" if c in (ABS_X, ABS_HAT0X) else "y"
@@ -3478,12 +3883,16 @@ class Kiosk:
 
         if self.mode == S_GAME:
             if not is_menu and name:
+                if not self.game_seen_core:
+                    self.single_fails = 0
                 self.game_seen_core = True
             elif is_menu and self.game_seen_core:
                 log("game ended without the menu button; back to launcher")
                 self.back_to_launcher_now()
             elif now - self.game_started > float(self.cfg["launch_timeout_s"]):
                 log("game did not start")
+                if self.single_game():
+                    self.single_fails += 1
                 self.state["pending_toast"] = "COULD NOT START\nTHAT GAME"
                 self.back_to_launcher_now()
             return
@@ -3618,6 +4027,7 @@ class Kiosk:
             # Nobody playing: quit the game back to the list.
             idle_exit = float(self.cfg["game_idle_exit_s"])
             if (self.mode == S_GAME and idle_exit > 0 and self.state["locked"]
+                    and not self.cfg.get("single_game", "").strip()
                     and now - self.game_last_input >= idle_exit):
                 self.state["pending_toast"] = "GAME ENDED\nNO INPUT"
                 self.exit_game("no input for %d s" % idle_exit)
@@ -3686,7 +4096,7 @@ BACKUP_DIR = os.path.join(HERE, "backup")
 SCRIPTS_DIR = "/media/fat/Scripts"
 # kept from the installed copy, never overwritten by an update
 KEEP_FILES = {"kiosk.ini", "state.json", "games_cache.json", "games_cache.json.tmp", "state.json.tmp"}
-KEEP_DIRS = {"art", "backup", "map_backup", "testsuite"}
+KEEP_DIRS = {"art", "backup", "map_backup"}
 # settings that no longer exist; dropped when kiosk.ini is merged
 RETIRED_KEYS = {"footer_genre", "footer_letter", "hide_vertical"}
 CA_FILES = ("/etc/ssl/certs/cacert.pem", "/etc/ssl/certs/ca-certificates.crt",

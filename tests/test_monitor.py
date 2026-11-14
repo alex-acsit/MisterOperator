@@ -6,7 +6,6 @@ SHOTS = os.environ.get("SHOTS")            # set to a folder to keep screenshots
 K.KIOSK_FLAG = T + "/kiosk_active"; K.FEATURES_PATH = T + "/MiSTer_features"; K.KIOSK_BOOT_FLAG = T + "/kiosk_boot"
 K.CONFIG_PATH = T + "/kiosk/kiosk.ini"; K.STATE_PATH = T + "/state.json"; K.CACHE_PATH = T + "/cache.json"
 K.LOG_PATH = T + "/log.txt"; K.STATUS_PATH = T + "/status.json"; K.CTL_PATH = T + "/ctl"; K.VOLUME_PATH = T + "/vol"
-K.SUITE_MGL = T + "/suite.mgl"
 for k, v in (("arcade_dir", T + "/_Arcade"), ("menu_button", "BTN_BASE4"), ("operator_button", "BTN_BASE5"),
              ("exit_grace_s", "0"), ("operator_hold_ms", "1500")):
     K.set_config_value(k, v)
@@ -48,7 +47,7 @@ def shot(name):
 k.poll_core(time.monotonic())
 k.set_locked(False); check(k.mode == "operator", "operator menu open")
 labels = [it[0] for it in k.opview.items()]
-check({"MONITOR TEST", "INPUT TEST", "240P TEST SUITE"} <= set(labels), "test items in the menu")
+check({"MONITOR TEST", "INPUT TEST"} <= set(labels) and "240P TEST SUITE" not in labels, "test items in the menu")
 
 # ---- monitor test
 goto("MONITOR TEST"); row = k.opview.sel
@@ -124,42 +123,4 @@ k.opview.tick(time.monotonic()); check(k.opview.page == "main", "held 3 s: back 
 ev(d, 1, 0x123, 0)
 check(k.mode == "operator", "and still in the operator menu")
 
-# ---- 240p Test Suite lookup and launch
-fat = T + "/fat"
-os.makedirs(fat + "/_Console"); os.makedirs(fat + "/games/MegaDrive/Tools")
-check(M.find_test_suite("", None, fat) is None, "nothing there: not found")
-check(k.opview.suite_text() == "NOT FOUND", "menu says NOT FOUND")
-open(fat + "/_Console/MegaDrive_20240101.rbf", "w").close()
-open(fat + "/games/MegaDrive/Tools/240pSuite-1.23.bin", "w").close()
-info = M.find_test_suite("", None, fat)
-check(info and info["rbf"] == "_Console/MegaDrive" and info["index"] == 1 and info["rom"].endswith("240pSuite-1.23.bin"),
-      "finds the Mega Drive suite, slot 1: %s" % info)
-mgl = M.suite_mgl(info)
-check('<rbf>_Console/MegaDrive</rbf>' in mgl and 'index="1"' in mgl and 'path="%s"' % info["rom"] in mgl, "MGL is right")
-os.makedirs(fat + "/games/NES"); open(fat + "/_Console/NES_20240101.rbf", "w").close()
-open(fat + "/games/NES/240pee.nes", "w").close()
-os.remove(fat + "/games/MegaDrive/Tools/240pSuite-1.23.bin")
-info2 = M.find_test_suite("", None, fat)
-check(info2 and info2["system"] == "NES" and info2["index"] == 0, "falls back to NES, slot 0")
-check(M.find_test_suite("games/NES/240pee.nes", None, fat)["system"] == "NES", "test_suite = a ROM path")
-open(fat + "/my.mgl", "w").write("<mistergamedescription/>")
-check(M.find_test_suite(fat + "/my.mgl", None, fat) == {"system": "MGL", "mgl": fat + "/my.mgl"}, "test_suite = an .mgl")
-check(M.find_test_suite(fat + "/missing.mgl", None, fat) is None, "missing .mgl: not found")
-
-k.opview._suite = info
-goto("240P TEST SUITE"); check(k.opview.suite_text() == "MEGA DRIVE >", "menu shows the system")
-cmds.clear(); press(0x120)
-check(cmds and cmds[-1] == "load_core " + K.SUITE_MGL and open(K.SUITE_MGL).read() == mgl, "launches the suite's MGL")
-check(k.mode == K.S_UNLOCKED and k.opview is None and not os.path.exists(K.KIOSK_FLAG), "runs unlocked, MiSTer menu allowed")
-# hold OPERATOR comes back to the operator menu
-core["name"] = "MegaDrive"; core["stamp"] += 1; k.poll_core(time.monotonic())
-k.op_down_at = time.monotonic() - 2; k.op_fired = False
-if k.op_down_at and not k.op_fired:
-    k.op_fired = True
-    if not k.state["locked"] and k.mode in (K.S_UNLOCKED, K.S_RETURNING) and K.flag(k.cfg, "operator_menu"):
-        k.open_operator()
-core["name"] = "MENU"; core["stamp"] += 1
-for _ in range(3):
-    k.poll_core(time.monotonic())
-check(k.mode == "operator", "holding OPERATOR returns to the operator menu")
 print("%d failure(s)" % fails)
