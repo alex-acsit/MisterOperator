@@ -7,7 +7,7 @@ patch to it that makes the kiosk seamless:
 | | Stock MiSTer main | Kiosk build |
 |---|---|---|
 | Boot / after a game | Stock menu shows for a moment, then the kiosk takes over | Straight to the kiosk |
-| Saving NVRAM on quit | MiSTer menu flashes open for 0.3 s on every quit | Saved silently, every time |
+| Saving NVRAM on quit | MiSTer menu flashes open for 0.3 s on every quit; cores that only save from their own "Save NVRAM" item aren't saved | Saved silently, every time, including those cores |
 | "Autosave Hiscores" core option | As each core's settings say (usually Off) | Switched On when the core loads, and saved |
 | MiSTer menu while locked | Blocked by the kiosk intercepting buttons | Can't be opened at all |
 | Volume changes | OSD volume bar pops up | Only the kiosk's own display |
@@ -39,6 +39,14 @@ At power-on the main program starts before the kiosk. So the kiosk also leaves
 for the first 2 minutes after power-on: no MiSTer menu at boot either. After that only
 `/tmp/kiosk_active` counts, so a missing or broken kiosk can't keep the menu blocked. If
 the kiosk takes over while the MiSTer menu is already showing, the build closes it.
+
+**Cores with a "Save NVRAM" item.** Most arcade cores ask the MiSTer to save their NVRAM
+when it changes, and the OSD (and this build's `save_nvram` command) only saves when asked.
+Some never ask by themselves: blahm1d's Midway Wolf/T/Y/X/V Unit, NARC and Gladiator cores
+only ask when their own **Save NVRAM** OSD item is used. For a core that hasn't asked,
+`save_nvram` looks for a trigger option named Save NVRAM (or Save CMOS; never Autosave or
+Clear), fires it as the OSD would, waits up to 0.5 s for the core to ask, then saves. It's
+listed as `nvram_trigger` in `/tmp/MiSTer_features` (patch 0007).
 
 **High scores.** Many arcade cores (Pac-Man, Galaga, Donkey Kong, Centipede, Robotron and
 others using the MiSTer hiscore module) have an OSD option **Autosave Hiscores**, at a

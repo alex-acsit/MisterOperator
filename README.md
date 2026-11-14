@@ -8,7 +8,7 @@ the MiSTer is reachable while the cabinet is locked.
 
 ![The game list on a landscape (YOKO) and a vertical (TATE) monitor](docs/screens.png)
 
-**Version 2.4** · for 15 kHz CRTs and HDMI · USB arcade encoders · nothing to install on
+**Version 2.4.1** · for 15 kHz CRTs and HDMI · USB arcade encoders · nothing to install on
 the MiSTer besides the kiosk · **[Manual](MANUAL.md)**
 
 ## Features

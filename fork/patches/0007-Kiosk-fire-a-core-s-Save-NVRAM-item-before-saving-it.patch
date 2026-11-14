@@ -1,0 +1,129 @@
+From 53e40975025563a1ed6e3311077c7f897eb7dd2c Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 14 Nov 2026 14:18:29 +1100
+Subject: [PATCH] Kiosk: fire a core's "Save NVRAM" item before saving its
+ NVRAM
+
+save_nvram only saved when the core had asked to (UIO_CHK_UPLOAD), the
+same check the OSD makes. Some cores never ask by themselves: blahm1d's
+Midway Wolf/T/Y/X/V Unit, NARC and Gladiator cores only request an
+upload when their own "Save NVRAM" trigger option (T/t entry) is used.
+Under the kiosk nothing was ever saved for them, so games without a
+factory CMOS in the MRA (MK3, UMK3, NBA Jam, ...) went through CMOS
+init on every start.
+
+When the core hasn't asked, save_nvram now looks for a trigger option
+whose label is "Save NVRAM"/"Save CMOS" (never Autosave or Clear),
+pulses it as the OSD does, waits up to 0.5 s for the core's request and
+then saves. Listed as nvram_trigger in MiSTer_features.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01BiX7tLmgAVhF4Zpbah9k8a
+---
+ kiosk.cpp | 59 ++++++++++++++++++++++++++++++++++++++++++++++++++++---
+ kiosk.h   |  2 ++
+ 2 files changed, 58 insertions(+), 3 deletions(-)
+
+diff --git a/kiosk.cpp b/kiosk.cpp
+index 82c85a1..a83a82a 100644
+--- a/kiosk.cpp
++++ b/kiosk.cpp
+@@ -4,6 +4,7 @@
+ #include <ctype.h>
+ #include <sys/stat.h>
+ #include <sys/sysinfo.h>
++#include <unistd.h>
+ 
+ #include "kiosk.h"
+ #include "hardware.h"
+@@ -36,15 +37,35 @@ void kiosk_write_features()
+ 	FILE *f = fopen(KIOSK_FEATURES, "w");
+ 	if (f)
+ 	{
+-		fputs("kiosk_active\nsave_nvram\nquiet_volume\nboot_flag\nclose_menu\nhiscore_autosave\n", f);
++		fputs("kiosk_active\nsave_nvram\nquiet_volume\nboot_flag\nclose_menu\nhiscore_autosave\nnvram_trigger\n", f);
+ 		fclose(f);
+ 	}
+ }
+ 
++static bool pulse_save_trigger();
++
+ void kiosk_save_nvram()
+ {
+-	// Same check the OSD makes before its "Saving..." screen.
+-	if (is_arcade() && spi_uio_cmd(UIO_CHK_UPLOAD))
++	if (!is_arcade()) return;
++
++	// Same check the OSD makes before its "Saving..." screen: the core has
++	// asked for its NVRAM to be saved.
++	bool save = spi_uio_cmd(UIO_CHK_UPLOAD);
++
++	// Some cores (blahm1d's Midway cores, for example) only ask when their own
++	// "Save NVRAM" OSD item is used. Use it for them, as the operator would,
++	// and give the core a moment to ask.
++	if (!save && pulse_save_trigger())
++	{
++		for (int i = 0; i < 100 && !save; i++)
++		{
++			usleep(5000);
++			save = spi_uio_cmd(UIO_CHK_UPLOAD);
++		}
++		if (!save) printf("kiosk: core did not ask to save nvram\n");
++	}
++
++	if (save)
+ 	{
+ 		printf("kiosk: saving nvram\n");
+ 		arcade_nvm_save();
+@@ -112,3 +133,35 @@ bool kiosk_apply_core_options()
+ 	}
+ 	return changed;
+ }
++
++static bool is_save_nvram(const char *label)
++{
++	while (*label == ' ') label++;
++	return !strncasecmp(label, "save", 4) &&
++		(strcasestr(label, "nvram") || strcasestr(label, "cmos")) &&
++		!strcasestr(label, "auto");
++}
++
++// Fire the core's "Save NVRAM" trigger option (a T/t entry), if it has one.
++static bool pulse_save_trigger()
++{
++	for (int i = 1; ; i++)
++	{
++		char *p = user_io_get_confstr(i);
++		if (!p) break;
++
++		while ((p[0] == 'H' || p[0] == 'h' || p[0] == 'D' || p[0] == 'd' || p[0] == 'P') && isdigit((unsigned char)p[1])) p += 2;
++		if (p[0] != 'T' && p[0] != 't') continue;
++		int ex = p[0] == 't';
++
++		char opt[32], label[128];
++		if (!conf_field(p + 1, 0, opt, sizeof(opt)) || !conf_field(p, 1, label, sizeof(label))) continue;
++		if (!is_save_nvram(label)) continue;
++
++		printf("kiosk: %s (status %s%s)\n", label, ex ? "t" : "T", opt);
++		user_io_status_set(opt, 1, ex);
++		user_io_status_set(opt, 0, ex);
++		return true;
++	}
++	return false;
++}
+diff --git a/kiosk.h b/kiosk.h
+index c8a5d94..b3fad65 100644
+--- a/kiosk.h
++++ b/kiosk.h
+@@ -15,6 +15,8 @@
+ //
+ // Extra MiSTer_cmd commands (always available):
+ //   save_nvram   save the running arcade core's NVRAM without opening the OSD
++//                (cores that only save from their own "Save NVRAM" OSD item
++//                have that item fired first; listed as nvram_trigger)
+ //
+ // At start-up KIOSK_FEATURES lists what this build supports, one word per line.
+ 
+-- 
+2.43.0
+
