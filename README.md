@@ -8,7 +8,7 @@ the MiSTer is reachable while the cabinet is locked.
 
 ![The game list on a landscape (YOKO) and a vertical (TATE) monitor](docs/screens.png)
 
-**Version 2.4.2** · for 15 kHz CRTs and HDMI · USB arcade encoders · nothing to install on
+**Version 2.4.3** · for 15 kHz CRTs and HDMI · USB arcade encoders · nothing to install on
 the MiSTer besides the kiosk · **[Manual](MANUAL.md)**
 
 ## Features
@@ -58,8 +58,7 @@ the MiSTer besides the kiosk · **[Manual](MANUAL.md)**
 1. **Get the files onto the SD card**, either:
    - **from the internet:** copy [`Scripts/update_arcade_kiosk.sh`](Scripts/update_arcade_kiosk.sh)
      to `/media/fat/Scripts/` and run **update_arcade_kiosk** from the MiSTer's Scripts
-     menu. It downloads the latest release and installs it. (This needs the repo to be
-     public.)
+     menu. It downloads the latest release and installs it. No GitHub account needed.
    - **or by hand:** download `MisterOperator_v<version>.zip` from
      [Releases](../../releases/latest), copy its `arcade_kiosk` and `Scripts` folders to the
      root of the SD card, and run **install_arcade_kiosk** from the Scripts menu.

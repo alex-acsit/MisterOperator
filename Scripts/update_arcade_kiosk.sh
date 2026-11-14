@@ -29,17 +29,28 @@ main() {
     CURL=(curl -fsSL --max-time 120 --retry 2 -H "User-Agent: MisterOperator-updater")
     [ -f "$CACERT" ] && CURL+=(--cacert "$CACERT")
 
-    URL=$("${CURL[@]}" "https://api.github.com/repos/$REPO/releases/latest" | python3 -c '
+    URL=$("${CURL[@]}" "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null | python3 -c '
 import json, sys
-rel = json.load(sys.stdin)
+try:
+    rel = json.load(sys.stdin)
+except ValueError:
+    sys.exit()
 for a in rel.get("assets", []):
     n = a["name"].lower()
     if n.startswith("misteroperator") and n.endswith(".zip"):
         print(a["browser_download_url"]); break
 ')
     if [ -z "$URL" ]; then
-        echo "Couldn't find a release to download. Check the network connection,"
-        echo "and that github.com/$REPO is public."
+        # The API limits anonymous requests; the public "latest release" page
+        # gives the version too.
+        LATEST=$("${CURL[@]}" -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest" 2>/dev/null)
+        TAG=${LATEST##*/releases/tag/}
+        if [ -n "$LATEST" ] && [ "$TAG" != "$LATEST" ]; then
+            URL="https://github.com/$REPO/releases/download/$TAG/MisterOperator_v${TAG#v}.zip"
+        fi
+    fi
+    if [ -z "$URL" ]; then
+        echo "Couldn't find a release to download. Check the MiSTer's network connection."
         return 1
     fi
 

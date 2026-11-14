@@ -68,7 +68,7 @@ sys.path.insert(0, HERE)
 from font8x8 import FONT  # noqa: E402
 import monitor_test  # noqa: E402
 
-VERSION = "2.4.2"
+VERSION = "2.4.3"
 
 CONFIG_PATH = os.path.join(HERE, "kiosk.ini")
 STATE_PATH = os.path.join(HERE, "state.json")
@@ -289,7 +289,6 @@ DEFAULTS = {
     "log_inputs": "0",
     "remember_last": "1",
     "update_repo": "alex-acsit/MisterOperator",
-    "update_token": "",
     "auto_update": "0",
     "game_idle_exit_s": "300",
     "save_nvram": "always",
@@ -4259,7 +4258,7 @@ SCRIPTS_DIR = "/media/fat/Scripts"
 KEEP_FILES = {"kiosk.ini", "state.json", "games_cache.json", "games_cache.json.tmp", "state.json.tmp"}
 KEEP_DIRS = {"art", "backup", "map_backup"}
 # settings that no longer exist; dropped when kiosk.ini is merged
-RETIRED_KEYS = {"footer_genre", "footer_letter", "hide_vertical"}
+RETIRED_KEYS = {"footer_genre", "footer_letter", "hide_vertical", "update_token"}
 CA_FILES = ("/etc/ssl/certs/cacert.pem", "/etc/ssl/certs/ca-certificates.crt",
             "/etc/ssl/cert.pem", "/etc/pki/tls/certs/ca-bundle.crt")
 
@@ -4308,31 +4307,73 @@ def http_get(url, headers=None, timeout=60):
         raise UpdateError(str(e))
 
 
+def final_url(url, timeout=30):
+    """Where a URL ends up after its redirects."""
+    curl = shutil.which("curl")
+    if curl:
+        cmd = [curl, "-sSL", "-o", "/dev/null", "-w", "%{url_effective}", "--max-time", str(timeout),
+               "-H", "User-Agent: MisterOperator-updater"]
+        for ca in CA_FILES:
+            if os.path.exists(ca):
+                cmd += ["--cacert", ca]
+                break
+        r = subprocess.run(cmd + [url], capture_output=True)
+        if r.returncode == 0 and r.stdout:
+            return r.stdout.decode("utf-8", "replace").strip()
+    import ssl
+    import urllib.request
+    ctx = None
+    for ca in CA_FILES:
+        if os.path.exists(ca):
+            ctx = ssl.create_default_context(cafile=ca)
+            break
+    req = urllib.request.Request(url, headers={"User-Agent": "MisterOperator-updater"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            return resp.geturl()
+    except Exception as e:
+        raise UpdateError(str(e))
+
+
+def release_zip_name(version):
+    return "MisterOperator_v%s.zip" % version
+
+
 def latest_release(cfg):
-    """{'version', 'tag', 'url', 'headers'} for the newest release's SD zip."""
+    """{'version', 'tag', 'url', 'headers', 'notes'} for the newest release's SD zip.
+    The repo is public, so nothing needs signing in: the GitHub API names the
+    release, and if the API won't answer (it allows 60 anonymous requests an
+    hour per address), the public "latest release" page does instead."""
     repo = cfg.get("update_repo", "").strip()
     if not repo:
         raise UpdateError("update_repo is empty in kiosk.ini")
-    headers = {"Accept": "application/vnd.github+json"}
-    token = cfg.get("update_token", "").strip()
-    if token:
-        headers["Authorization"] = "Bearer " + token
-    data = http_get("https://api.github.com/repos/%s/releases/latest" % repo, headers, timeout=30)
     try:
-        rel = json.loads(data.decode("utf-8"))
-    except ValueError:
-        raise UpdateError("unexpected answer from GitHub")
-    if "tag_name" not in rel:
-        raise UpdateError(rel.get("message", "no releases found"))
+        data = http_get("https://api.github.com/repos/%s/releases/latest" % repo,
+                        {"Accept": "application/vnd.github+json"}, timeout=30)
+        try:
+            rel = json.loads(data.decode("utf-8"))
+        except ValueError:
+            raise UpdateError("unexpected answer from GitHub")
+        if "tag_name" not in rel:
+            raise UpdateError(rel.get("message", "no releases found"))
+    except UpdateError as api_error:
+        try:
+            where = final_url("https://github.com/%s/releases/latest" % repo)
+        except UpdateError:
+            raise api_error
+        m = re.search(r"/releases/tag/([^/?#]+)$", where)
+        if not m:
+            raise api_error
+        tag = m.group(1)
+        version = tag.lstrip("vV")
+        log("update: GitHub API unavailable (%s); latest release page says %s" % (api_error, tag))
+        return {"version": version, "tag": tag, "headers": {}, "notes": "",
+                "url": "https://github.com/%s/releases/download/%s/%s" % (repo, tag, release_zip_name(version))}
     for a in rel.get("assets", []):
         name = a.get("name", "")
         if name.lower().endswith(".zip") and name.lower().startswith("misteroperator"):
-            if token:      # private repo: the API URL with the token
-                url, hdr = a["url"], dict(headers, Accept="application/octet-stream")
-            else:
-                url, hdr = a["browser_download_url"], {}
             return {"version": rel["tag_name"].lstrip("vV"), "tag": rel["tag_name"],
-                    "url": url, "headers": hdr, "notes": rel.get("body") or ""}
+                    "url": a["browser_download_url"], "headers": {}, "notes": rel.get("body") or ""}
     raise UpdateError("release %s has no MisterOperator zip" % rel["tag_name"])
 
 

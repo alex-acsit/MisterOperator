@@ -61,14 +61,32 @@ served["https://x/rel.zip"] = make_release(T + "/rel.zip")
 cfg = K.load_config()
 rel = K.latest_release(cfg)
 check(rel["version"] == "9.9" and rel["url"] == "https://x/rel.zip" and not rel["headers"], "latest release found (public download)")
-rel_tok = K.latest_release(dict(cfg, update_token="abc"))
-check(rel_tok["url"] == "https://api/asset/1" and rel_tok["headers"]["Accept"] == "application/octet-stream",
-      "with update_token: private-repo download through the API")
+check(K.latest_release(dict(cfg, update_token="abc")) == rel, "an old update_token is ignored (public repo)")
+# the API refuses (rate limit): the public latest-release page gives the version
+def refuse(url, headers=None, timeout=60):
+    if url.startswith("https://api.github.com/"):
+        raise K.UpdateError("The requested URL returned error: 403")
+    return open(served[url], "rb").read()
+K.http_get = refuse
+K.final_url = lambda url, timeout=30: "https://github.com/alex-acsit/MisterOperator/releases/tag/v9.9"
+rel_page = K.latest_release(cfg)
+check(rel_page["version"] == "9.9" and rel_page["url"] ==
+      "https://github.com/alex-acsit/MisterOperator/releases/download/v9.9/MisterOperator_v9.9.zip",
+      "API refused: release found from the public page")
+K.final_url = lambda url, timeout=30: "https://github.com/alex-acsit/MisterOperator/releases"
+try:
+    K.latest_release(cfg); check(False, "no release: reported")
+except K.UpdateError as e:
+    check("403" in str(e), "no release on the page either: the API's error is reported (%s)" % e)
+K.http_get = fake_get
+K.final_url = lambda url, timeout=30: (_ for _ in ()).throw(K.UpdateError("404"))
 served["api"] = {"message": "Not Found"}
 try:
     K.latest_release(cfg); check(False, "missing release reported")
 except K.UpdateError as e:
-    check("Not Found" in str(e), "repo not found / private: clear error (%s)" % e)
+    check("Not Found" in str(e), "repo not found: clear error (%s)" % e)
+merged = K.merge_ini("update_repo = a/b\n", "update_repo = a/b\nupdate_token = ghp_old\n")
+check("update_token" not in merged, "merging kiosk.ini drops the old update_token")
 served["api"] = {"tag_name": "v9.9", "assets": [
     {"name": "MisterOperator_v9.9.zip", "browser_download_url": "https://x/rel.zip", "url": "u"}]}
 
