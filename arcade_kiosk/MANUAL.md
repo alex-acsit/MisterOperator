@@ -1,6 +1,6 @@
 # MisterOperator manual
 
-Version 2.4.2. MisterOperator turns a MiSTer FPGA into a locked-down, arcade-only cabinet:
+Version 2.4.4. MisterOperator turns a MiSTer FPGA into a locked-down, arcade-only cabinet:
 players see a game list and one MENU button that always brings them back to it, and the
 operator gets a hidden OPERATOR button that opens a service menu in the same look.
 
@@ -41,7 +41,7 @@ operator gets a hidden OPERATOR button that opens a service menu in the same loo
 Either way leaves you with `/media/fat/arcade_kiosk/` and two scripts in
 `/media/fat/Scripts/`.
 
-**From the internet (once the GitHub repo is public):** copy
+**From the internet:** copy
 `Scripts/update_arcade_kiosk.sh` to `/media/fat/Scripts/` and run **update_arcade_kiosk**
 from the MiSTer's Scripts menu. It downloads the latest release and runs the installer.
 
@@ -488,8 +488,11 @@ run, is refused before anything changes. The version being replaced is saved in
 If an update includes a newer kiosk build of the MiSTer main program, install it from the
 operator menu (**MiSTer main** shows `OLD: 1 UPDATES`).
 
-Updates come from the GitHub repo in `update_repo`. While that repo is private, set
-`update_token` to a GitHub token with read access to it.
+Updates come from the public GitHub repo in `update_repo`
+(`alex-acsit/MisterOperator`), so no GitHub account or token is needed: the MiSTer only
+needs internet access. The kiosk asks GitHub's API for the latest release; if the API
+refuses (it allows 60 requests an hour from one internet connection), it reads the version
+from the public releases page instead.
 
 ## 8. Settings reference (kiosk.ini)
 
@@ -593,7 +596,6 @@ starting with `;` are comments, and so is anything after a `;` on a line. Restar
 | Setting | Default | |
 |---|---|---|
 | `update_repo` | `alex-acsit/MisterOperator` | Where releases come from |
-| `update_token` | | GitHub token, only while that repo is private |
 | `auto_update` | `0` | `1` = install new releases by itself |
 
 **Advanced**
@@ -675,7 +677,7 @@ Everything is written to `/tmp/arcadekiosk.log` (also readable in **View log**).
 | A game is missing from the list | Check **Show games**, the **Genres** page, `genres`/`exclude_genres` and `game_list`. `--scan` lists what's found. |
 | The MiSTer menu seems blocked with the kiosk stopped | `rm /tmp/kiosk_active` over SSH, or reboot. |
 | The kiosk build won't start | The safety net restores `MiSTer.stock` within 90 s. By hand: copy `MiSTer.stock` over `MiSTer` on the SD card. |
-| "Update check failed" | Check the MiSTer's network. While the GitHub repo is private, set `update_token`. The log has the details. |
+| "Update check failed" | Check the MiSTer's network (it needs to reach github.com). The log has the details. |
 | A button or stick seems dead | **Input test** shows whether the kiosk sees it, and its code name. |
 | A button does the wrong thing in games | Run **Controller setup** for that controller. |
 | The cabinet keeps starting the same game | **Single game** is on. Hold OPERATOR, set **Single game** to OFF. |
@@ -700,6 +702,8 @@ Everything is written to `/tmp/arcadekiosk.log` (also readable in **View log**).
 
 | Version | Date | Changes |
 |---|---|---|
+| 2.4.4 | 2026-11-14 | Kiosk build fix: the silent NVRAM save for cores with their own "Save NVRAM" item, and switching on "Autosave Hiscores", never ran (the build stopped reading a core's options at the first, empty, entry). Install the new build from **MiSTer main** (`OLD: 1 UPDATES`). |
+| 2.4.3 | 2026-11-14 | Updates use the now-public GitHub repo with no token: `update_token` is gone (removed from `kiosk.ini` by the update), and if GitHub's API refuses, the version comes from the public releases page. |
 | 2.4.2 | 2026-11-14 | The log shows, for games that keep NVRAM, which core and save file they use, and whether the save file was actually written when the game was quit. |
 | 2.4.1 | 2026-11-14 | Big games that take a while to load (blahm1d's Midway cores, for example) are waited for instead of given up on after 12 s (`launch_max_s`); held credits and demo time count from when the game is up; a MENU press while a game is loading is no longer lost. Kiosk build: saves NVRAM for cores that only save from their own "Save NVRAM" item. |
 | 2.4 | 2026-11-14 | NVRAM saved on every quit by default (`save_nvram = always`; older installs moved over once). Kiosk build switches on every core's "Autosave Hiscores" option. |

@@ -1,0 +1,45 @@
+From 3f2e38a084d3ae856541110c877a06a3dd7193f2 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 14 Nov 2026 22:33:19 +1100
+Subject: [PATCH] Kiosk: scan core options from entry 2, not 1
+
+Both option scans (Autosave Hiscores, Save NVRAM trigger) started at
+config-string entry 1 and stopped at the first NULL. Entry 1 is empty in
+nearly every core ("NAME;;"), and user_io_get_confstr() returns NULL for
+an empty entry, so the scans ended before reading any option: neither
+feature ever did anything. Start at entry 2, as the OSD does.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01BiX7tLmgAVhF4Zpbah9k8a
+---
+ kiosk.cpp | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/kiosk.cpp b/kiosk.cpp
+index a83a82a..66f262f 100644
+--- a/kiosk.cpp
++++ b/kiosk.cpp
+@@ -101,7 +101,10 @@ bool kiosk_apply_core_options()
+ 	if (!kiosk_active()) return false;
+ 
+ 	bool changed = false;
+-	for (int i = 1; ; i++)
++	// Options start at entry 2, as in the OSD: entry 0 is the core name and
++	// entry 1 (UART/save-state settings) is empty in most cores, which
++	// user_io_get_confstr() reports the same way as the end of the list.
++	for (int i = 2; ; i++)
+ 	{
+ 		char *p = user_io_get_confstr(i);
+ 		if (!p) break;
+@@ -145,7 +148,7 @@ static bool is_save_nvram(const char *label)
+ // Fire the core's "Save NVRAM" trigger option (a T/t entry), if it has one.
+ static bool pulse_save_trigger()
+ {
+-	for (int i = 1; ; i++)
++	for (int i = 2; ; i++)
+ 	{
+ 		char *p = user_io_get_confstr(i);
+ 		if (!p) break;
+-- 
+2.43.0
+

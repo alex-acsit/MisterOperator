@@ -68,7 +68,7 @@ sys.path.insert(0, HERE)
 from font8x8 import FONT  # noqa: E402
 import monitor_test  # noqa: E402
 
-VERSION = "2.4.3"
+VERSION = "2.4.4"
 
 CONFIG_PATH = os.path.join(HERE, "kiosk.ini")
 STATE_PATH = os.path.join(HERE, "state.json")
