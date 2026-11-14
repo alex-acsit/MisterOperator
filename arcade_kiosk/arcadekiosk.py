@@ -65,8 +65,9 @@ import xml.etree.ElementTree as ET
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from font8x8 import FONT  # noqa: E402
+import monitor_test  # noqa: E402
 
-VERSION = "2.1.1"
+VERSION = "2.2"
 
 CONFIG_PATH = os.path.join(HERE, "kiosk.ini")
 STATE_PATH = os.path.join(HERE, "state.json")
@@ -89,6 +90,7 @@ FEATURES_PATH = "/tmp/MiSTer_features"    # written by that build at start-up
 KIOSK_BOOT_FLAG = "/media/fat/config/kiosk_boot"
 MAIN_BIN = "/media/fat/MiSTer"
 KIOSK_MAIN = os.path.join(HERE, "MiSTer_kiosk")
+SUITE_MGL = "/tmp/misteroperator_240p.mgl"   # written when TEST SUITE launches a ROM
 VIRTUAL_PHYS = "arcadekiosk/"
 
 # ---------------------------------------------------------------------------
@@ -307,6 +309,7 @@ DEFAULTS = {
     "inputs_dir": "/media/fat/config/inputs",
     "map_backup_dir": os.path.join(HERE, "map_backup"),
     "screen": "yoko",
+    "test_suite": "",
 }
 
 
@@ -1112,6 +1115,10 @@ class OperatorView:
         self.lines = []              # rows of the current sub-page
         self.volume = read_volume()
         self.release = None          # newer release found by UPDATE KIOSK
+        self.patterns = None         # monitor test patterns (page "patterns")
+        self.inputs = None           # input tester (page "inputs")
+        self.return_sel = 0          # main-page row to come back to
+        self._suite = False          # the 240p Test Suite, looked up when first needed
 
     # -- helpers ------------------------------------------------------------------
     @property
@@ -1179,6 +1186,10 @@ class OperatorView:
             ("PLAY COUNTS", lambda: ">", None, lambda: self.open_page("plays")),
             ("RESET NVRAM", lambda: ">", None, lambda: self.open_page("nvram")),
             ("RESCAN GAMES", lambda: "", None, self.rescan),
+            ("MONITOR TEST", lambda: ">", None, lambda: self.open_page("patterns")),
+            ("INPUT TEST", lambda: ">", None, lambda: self.open_page("inputs")),
+            ("240P TEST SUITE", self.suite_text, None,
+             (lambda: k.operator_test_suite(self.suite())) if self.suite() else None),
             ("VIEW LOG", lambda: ">", None, lambda: self.open_page("log")),
             ("MISTER MENU", lambda: ">", None, k.operator_stock_menu),
             ("MISTER MAIN", self.main_text, None,
@@ -1309,13 +1320,87 @@ class OperatorView:
 
     def rescan(self):
         n = self.k.rescan_games()
+        self._suite = False
         self.show_toast("%d GAMES" % n)
+
+    def suite(self):
+        if self._suite is False:
+            try:
+                self._suite = monitor_test.find_test_suite(self.cfg.get("test_suite", ""), HERE)
+            except OSError as e:
+                log("test suite search failed: %s" % e)
+                self._suite = None
+        return self._suite
+
+    def suite_text(self):
+        s = self.suite()
+        return (s["system"] + " >") if s else "NOT FOUND"
+
+    TEST_PAGES = ("patterns", "inputs")
+
+    def test_input(self, dev, t, c, v, now):
+        """Every control goes here while a test page is up."""
+        k = self.k
+        if self.page == "inputs":
+            self.inputs.event(dev, t, c, v, now, code_name)
+            k.need_redraw = True
+            return
+        dirn = k._direction_from(dev, t, c, v)
+        if dirn:
+            axis, d = dirn
+            key = (dev.path, "test", axis)
+            if k.dir_state.get(key, 0) != d:
+                k.dir_state[key] = d
+                if d:
+                    if axis == "x":
+                        self.patterns.step(d)
+                    else:
+                        self.patterns.vary(-d)
+                    k.need_redraw = True
+            return
+        if t != EV_KEY or v != 1:
+            return
+        if c in k.launch_buttons:
+            self.patterns.step(1)
+        elif c in k.letter_buttons:
+            self.patterns.vary(1)
+        elif c in k.genre_buttons or c in k.genre_back_buttons or k.is_menu_btn(dev, c):
+            self.back()
+            return
+        else:
+            self.patterns.show_label()      # any other button: show what this is
+        k.need_redraw = True
+
+    def tick(self, now):
+        """Called from the main loop while the operator menu is up."""
+        if self.page == "inputs" and self.inputs:
+            p = self.inputs.hold_progress(now)
+            if self.inputs.should_exit(now):
+                self.inputs.held.clear()
+                self.back()
+            elif p >= 1.0 and int(p * 4) != getattr(self, "_tick_q", None):
+                self._tick_q = int(p * 4)
+                self.k.need_redraw = True
+        elif self.page == "patterns" and self.patterns:
+            lab = self.patterns.label_visible(now)
+            if lab != getattr(self, "_label_on", None):
+                self._label_on = lab
+                self.k.need_redraw = True
 
     # -- sub-pages ----------------------------------------------------------------
     def open_page(self, page):
+        if self.page == "main":
+            self.return_sel = self.sel
         self.page, self.sel, self.top, self.confirm = page, 0, 0, None
         k = self.k
-        if page == "plays":
+        if page == "patterns":
+            self.patterns = monitor_test.Patterns(Canvas, screen_rotation(self.cfg))
+            self._label_on = None
+            log("operator menu: monitor test")
+        elif page == "inputs":
+            self.inputs = monitor_test.InputTest(k)
+            log("operator menu: input test")
+        elif page == "plays":
             plays = k.state.get("plays", {})
             names = {g["path"]: g["label"] for g in k.all_games()}
             rows = sorted(((n, names.get(p, os.path.basename(p)[:-4])) for p, n in plays.items()),
@@ -1349,7 +1434,10 @@ class OperatorView:
         if self.confirm is not None:
             self.confirm = None
         elif self.page != "main":
-            self.page, self.sel, self.top = "main", 0, 0
+            self.page, self.sel, self.top = "main", self.return_sel, 0
+            self.patterns = self.inputs = None
+            self.k.dir_state.clear()
+            self.k.repeat.clear()
         else:
             self.k.operator_lock()
             return
@@ -1357,9 +1445,13 @@ class OperatorView:
 
     # -- input --------------------------------------------------------------------
     def count(self):
+        if self.page in self.TEST_PAGES:
+            return 0
         return len(self.items()) if self.page == "main" else len(self.lines)
 
     def move(self, axis, d):
+        if self.page in self.TEST_PAGES:
+            return
         if axis == "x":
             if self.page == "main":
                 label, value, change, action = self.items()[self.sel]
@@ -1375,6 +1467,8 @@ class OperatorView:
 
     def press(self):
         """Button 1."""
+        if self.page in self.TEST_PAGES:
+            return
         if self.page == "main":
             label, value, change, action = self.items()[self.sel]
             if action is None and change:
@@ -1410,6 +1504,14 @@ class OperatorView:
 
     # -- drawing ------------------------------------------------------------------
     def draw(self, c, blink_on=True):
+        if self.page == "patterns":
+            # normally drawn straight onto the screen by Kiosk.draw()
+            self.patterns.draw(c)
+            return
+        if self.page == "inputs":
+            self.inputs.draw(c, (BG, PANEL, LINE, ACCENT, AMBER, CYAN, TEXT, DIM, SELECT),
+                             time.monotonic(), code_name, self.k.devices.values())
+            return
         c.fill(0, 0, c.w, c.h, BG)
         title = {"main": "OPERATOR", "plays": "PLAYS", "nvram": "NVRAM", "log": "LOG",
                  "genres": "GENRES"}[self.page]
@@ -2926,6 +3028,31 @@ class Kiosk:
         mister_cmd("load_core %s" % g["path"])
         self.write_status()
 
+    def operator_test_suite(self, info):
+        """Run the 240p Test Suite on its console core, unlocked like GAME SETTINGS:
+        holding OPERATOR comes back to the operator menu."""
+        if info.get("mgl"):
+            path = info["mgl"]
+        else:
+            path = SUITE_MGL
+            try:
+                with open(path, "w") as f:
+                    f.write(monitor_test.suite_mgl(info))
+            except OSError as e:
+                log("cannot write %s: %s" % (path, e))
+                if self.opview:
+                    self.opview.show_toast("COULD NOT START\nTHE TEST SUITE")
+                return
+        log("operator menu: 240p test suite (%s, %s)" % (info["system"], info.get("rom") or path))
+        self.mode = S_UNLOCKED
+        self.sync_flag()                        # before the new main program starts
+        self.release_framebuffer()
+        self.opview = None
+        self.current_game = None
+        self.mode = S_UNLOCKED
+        mister_cmd("load_core %s" % path)
+        self.write_status()
+
     def operator_stock_menu(self):
         log("operator menu: stock MiSTer menu")
         if self.mode == S_GAME:
@@ -2952,6 +3079,9 @@ class Kiosk:
         dirn = self._direction_from(dev, t, c, v)
         if (t == EV_KEY and v == 1) or (dirn and dirn[1]):
             self.op_activity = now
+        if self.opview and self.opview.page in OperatorView.TEST_PAGES:
+            self.opview.test_input(dev, t, c, v, now)
+            return
         if dirn:
             axis, d = dirn
             key = (dev.path, axis)
@@ -3073,13 +3203,19 @@ class Kiosk:
 
             # Operator button: always ours, never forwarded.
             if t == EV_KEY and self.is_operator_btn(dev, c):
+                on_test = (self.mode == S_OPERATOR and self.opview
+                           and self.opview.page in OperatorView.TEST_PAGES)
+                if on_test and self.opview.page == "inputs":
+                    self.opview.inputs.event(dev, t, c, v, now, code_name)
+                    self.need_redraw = True
                 if v == 1:
                     self.op_down_at = now
                     self.op_fired = False
                     log("operator button down (%s, mode %s); hold %d ms to %s" % (
                         dev.vidpid, self.mode, int(self.cfg["operator_hold_ms"]),
                         "unlock" if self.state["locked"] else "lock"))
-                    if self.mode == S_OPERATOR and self.opview and int(self.cfg["operator_hold_ms"]) > 0:
+                    if (self.mode == S_OPERATOR and self.opview and not on_test
+                            and int(self.cfg["operator_hold_ms"]) > 0):
                         self.opview.show_toast("KEEP HOLDING\nTO LOCK", 5)
                         self.need_redraw = True
                     if self.mode == S_LAUNCHER and self.view and int(self.cfg["operator_hold_ms"]) > 0:
@@ -3092,6 +3228,10 @@ class Kiosk:
                         if self.mode == S_LAUNCHER and self.view:
                             self.view.show_toast("HOLD THE OPERATOR\nBUTTON TO UNLOCK", 2)
                             self.need_redraw = True
+                        elif on_test:
+                            self.opview.inputs and self.opview.inputs.held.clear()
+                            self.opview.back()            # a tap leaves the test
+                            self.op_activity = now
                     self.op_down_at = None
                 continue
 
@@ -3255,7 +3395,10 @@ class Kiosk:
         view = self.opview if getattr(self, "mode", None) == S_OPERATOR else self.view
         if not (self.fb and self.canvas and view):
             return
-        if getattr(self, "lcanvas", None):
+        if view is getattr(self, "opview", None) and view.page == "patterns":
+            # Test patterns go straight onto the raster, never turned for TATE.
+            view.patterns.draw(self.canvas, rotate_canvas)
+        elif getattr(self, "lcanvas", None):
             view.draw(self.lcanvas, self.blink_on)
             rotate_canvas(self.lcanvas, self.canvas, self.rotation)
         else:
@@ -3484,7 +3627,11 @@ class Kiosk:
                 if self.opview and self.opview.toast and now > self.opview.toast_until:
                     self.opview.toast = None
                     self.need_redraw = True
+                if self.opview:
+                    self.opview.tick(now)
                 timeout = float(self.cfg["operator_timeout_s"])
+                if timeout > 0 and self.opview and self.opview.page == "patterns":
+                    timeout = max(timeout, 1800)   # adjusting a monitor takes a while
                 if timeout > 0 and now - self.op_activity >= timeout:
                     log("operator menu left alone for %d s; locking" % timeout)
                     self.set_locked(True)
@@ -3539,7 +3686,7 @@ BACKUP_DIR = os.path.join(HERE, "backup")
 SCRIPTS_DIR = "/media/fat/Scripts"
 # kept from the installed copy, never overwritten by an update
 KEEP_FILES = {"kiosk.ini", "state.json", "games_cache.json", "games_cache.json.tmp", "state.json.tmp"}
-KEEP_DIRS = {"art", "backup", "map_backup"}
+KEEP_DIRS = {"art", "backup", "map_backup", "testsuite"}
 # settings that no longer exist; dropped when kiosk.ini is merged
 RETIRED_KEYS = {"footer_genre", "footer_letter", "hide_vertical"}
 CA_FILES = ("/etc/ssl/certs/cacert.pem", "/etc/ssl/certs/ca-certificates.crt",

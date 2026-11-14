@@ -8,7 +8,7 @@ the MiSTer is reachable while the cabinet is locked.
 
 ![The game list on a landscape (YOKO) and a vertical (TATE) monitor](docs/screens.png)
 
-**Version 2.1.1** · for 15 kHz CRTs and HDMI · USB arcade encoders · nothing to install on
+**Version 2.2** · for 15 kHz CRTs and HDMI · USB arcade encoders · nothing to install on
 the MiSTer besides the kiosk · **[Manual](MANUAL.md)**
 
 ## Features
@@ -24,6 +24,9 @@ the MiSTer besides the kiosk · **[Manual](MANUAL.md)**
 - Hold the **OPERATOR** button for a themed **operator menu**: volume, free credits, demo
   and idle timers, which games and genres are listed, screen and theme, play counts,
   NVRAM, a game's DIP switches, updates and reboot
+- **Monitor and input tests** in the operator menu: grid, convergence, colour bars,
+  black/white level, grey ramps, purity, overscan, linearity and sharpness patterns, a live
+  tester for every button and stick, and a one-press launch of the 240p Test Suite
 - **Attract mode** plays demos when the cabinet is idle; **idle games quit** by themselves
 - Game settings and high scores (NVRAM) are saved, so no CMOS errors on games like NBA Jam
 - **Updates over the internet**: from the operator menu, the Scripts menu, or automatically
@@ -39,6 +42,9 @@ the MiSTer besides the kiosk · **[Manual](MANUAL.md)**
   <img src="docs/operator.png" width="32%" alt="Operator menu">
   <img src="docs/genres.png" width="32%" alt="Genre page in the operator menu">
   <img src="docs/letter_picker.png" width="32%" alt="Letter jump">
+</p>
+<p align="center">
+  <img src="docs/tests.png" width="98%" alt="Input test, colour bars and linearity pattern in the operator menu">
 </p>
 
 ## Install

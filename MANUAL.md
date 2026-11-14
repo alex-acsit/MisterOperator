@@ -1,6 +1,6 @@
 # MisterOperator manual
 
-Version 2.1.1. MisterOperator turns a MiSTer FPGA into a locked-down, arcade-only cabinet:
+Version 2.2. MisterOperator turns a MiSTer FPGA into a locked-down, arcade-only cabinet:
 players see a game list and one MENU button that always brings them back to it, and the
 operator gets a hidden OPERATOR button that opens a service menu in the same look.
 
@@ -207,6 +207,9 @@ Every change is saved to `kiosk.ini` at once and keeps its comments.
 | **Play counts** | How many times each game has been played from the list, most played first. |
 | **Reset NVRAM** | Lists the games with saved NVRAM. Button 1 twice wipes that game's settings and high scores. |
 | **Rescan games** | Re-reads the arcade folder (after adding or removing games). |
+| **Monitor test** | Full-screen test patterns for adjusting the monitor (see [4.5](#45-monitor-and-input-tests)). |
+| **Input test** | Shows every button and stick as it's pressed (see [4.5](#45-monitor-and-input-tests)). |
+| **240p test suite** | Runs the 240p Test Suite on its console core, if its ROM is on the SD card. Shows which system it found, or NOT FOUND. Hold OPERATOR to come back. |
 | **View log** | The end of `/tmp/arcadekiosk.log`. Up/down scrolls, left/right pages. |
 | **MiSTer menu** | The stock MiSTer menu, for anything else. Hold OPERATOR to come back. |
 | **MiSTer main** | KIOSK, STOCK or OLD: which MiSTer main program is running. Installs or updates the kiosk build (see [6](#6-kiosk-build-of-the-mister-main-program)). |
@@ -229,6 +232,47 @@ saved as `hidden_genres`.
 `operator_menu = 0` brings back the original behaviour, where OPERATOR goes straight to
 the stock MiSTer menu instead of the operator menu. `arcadekiosk.py --stock` over SSH always
 gets there.
+
+### 4.5 Monitor and input tests
+
+**Monitor test** draws test patterns modelled on the 240p Test Suite's, at the list's own
+320×240 resolution and refresh (15 kHz with the `[menu]` lines from `MiSTer.ini`). They go
+straight onto the raster, so on a TATE monitor they fill the tube the same way; only the
+name box is turned upright. Left/right or Button 1 changes the pattern, up/down its
+variant; the name shows for a few seconds after each change. Button 2, MENU or a tap of
+OPERATOR goes back. The operator menu doesn't lock itself for 30 minutes while a pattern
+is up.
+
+| Pattern | Variants | Use it for |
+|---|---|---|
+| Grid | 16, 20, 8, 32 px | Geometry, size and centring (red border and centre cross) |
+| Convergence | Dots, crosses, red, green, blue grids | Static and dynamic convergence |
+| Colour bars | 75%, 100% | Colour, tint and the colour decoder |
+| Black/white level | Black, white | Brightness (lowest bars just visible) and contrast (top bars stay apart without blooming) |
+| Grey ramps | 32 steps, 16 steps, smooth | Grey scale and colour balance, R/G/B and white |
+| Purity | White, red, green, blue, 50% grey, black | Purity and degaussing; dead or stuck pixels on LCDs |
+| Overscan | — | How much of the picture is hidden: frames at the edge, 2.5%, 5%, 7.5% and 10% |
+| Linearity | With grid, without | Linearity (the circles should be round) |
+| Sharpness | — | Focus: 1, 2 and 4 px stripes and a checkerboard |
+
+**Input test** lists every controller the kiosk holds. Each one shows its stick as a 3×3
+grid and a box for each button once it has been pressed, lit while held. Buttons with a
+job in the kiosk are named by it (PLAY, GENRE+, GENRE-, LETTER, COIN, MENU, OPERATOR);
+the rest go by their code name, which is what `kiosk.ini` and the log use. Stick and
+analogue values and spinner/trackball counts are shown too, and the last press is at the
+bottom. Every button is tested, MENU included, so to leave **hold any button for 3
+seconds** or tap OPERATOR. (Holding OPERATOR locks the cabinet, as everywhere.)
+
+**240p test suite.** For tests at a console's own 240p timing, and the suite's full set
+(including its own controller test, scroll and lag tests), the menu runs Artemio Urbina's
+[240p Test Suite](https://artemiourbina.itch.io/240p-test-suite). It isn't included; get
+the Mega Drive version (or SNES or NES) from its download page and copy the ROM to
+`games/MegaDrive/`, `games/SNES/`, `games/NES/` or `arcade_kiosk/testsuite/`. The kiosk
+looks for a file with `240p` in its name, prefers Mega Drive, then SNES, then NES, and
+needs that console's core in `_Console`. It then writes a small `.mgl` and starts it,
+unlocked: MENU opens the MiSTer menu, holding OPERATOR returns to the operator menu. To
+use a particular ROM or your own `.mgl`, set `test_suite` in `kiosk.ini`. After copying
+the ROM, use **Rescan games** to look again.
 
 ## 5. Features in detail
 
@@ -414,6 +458,7 @@ starting with `;` are comments, and so is anything after a `;` on a line. Restar
 | Setting | Default | |
 |---|---|---|
 | `screen` | `yoko` | `tate_cw` / `tate_ccw` for a vertical monitor |
+| `test_suite` | blank | The 240p Test Suite: blank searches the SD card, or a ROM or `.mgl` path |
 | `theme` | `green` | `phosphor`, `classic`; plus `color_<name> = #RRGGBB` |
 | `title` | `ARCADE` | Heading on the list |
 | `footer_play` | `PRESS 1 TO PLAY` | Blinking footer text |
@@ -522,7 +567,8 @@ Over SSH (`root` / `1` by default), `python3 /media/fat/arcade_kiosk/arcadekiosk
 
 | Path | |
 |---|---|
-| `arcade_kiosk/arcadekiosk.py`, `font8x8.py` | The kiosk |
+| `arcade_kiosk/arcadekiosk.py`, `font8x8.py`, `monitor_test.py` | The kiosk (`monitor_test.py`: test patterns, input test) |
+| `arcade_kiosk/testsuite/` | Optional place for the 240p Test Suite ROM |
 | `arcade_kiosk/kiosk.ini` | Settings |
 | `arcade_kiosk/state.json` | Lock state, credits, play counts, last game played |
 | `arcade_kiosk/run.sh` | Starts the kiosk at boot and restarts it if it stops |
@@ -548,6 +594,7 @@ Over SSH (`root` / `1` by default), `python3 /media/fat/arcade_kiosk/arcadekiosk
 | `/tmp/arcadekiosk.status` | What `--status` shows |
 | `/tmp/kiosk_active` | Present while the kiosk owns the screen (read by the kiosk build) |
 | `/tmp/MiSTer_features` | Written by the kiosk build at start-up |
+| `/tmp/misteroperator_240p.mgl` | Written when **240p test suite** starts |
 
 ## 11. Troubleshooting
 
@@ -568,6 +615,9 @@ Everything is written to `/tmp/arcadekiosk.log` (also readable in **View log**).
 | The MiSTer menu seems blocked with the kiosk stopped | `rm /tmp/kiosk_active` over SSH, or reboot. |
 | The kiosk build won't start | The safety net restores `MiSTer.stock` within 90 s. By hand: copy `MiSTer.stock` over `MiSTer` on the SD card. |
 | "Update check failed" | Check the MiSTer's network. While the GitHub repo is private, set `update_token`. The log has the details. |
+| A button or stick seems dead | **Input test** shows whether the kiosk sees it, and its code name. |
+| **240p test suite** says NOT FOUND | Check the ROM has `240p` in its name, is in one of the folders in [4.5](#45-monitor-and-input-tests), and the console's core is in `_Console`; then **Rescan games**. Or set `test_suite`. |
+| The 240p Test Suite opens the MiSTer file browser instead | The core loads ROMs into another slot. Make an `.mgl` for it and set `test_suite` to that file. |
 | A new version misbehaves | `--rollback`, or copy a folder from `arcade_kiosk/backup/` back. |
 | Turn the kiosk off for good | Remove the `# Arcade Kiosk` lines from `/media/fat/linux/user-startup.sh`, and remove the kiosk build (section 6). Reboot. |
 
@@ -589,6 +639,7 @@ Everything is written to `/tmp/arcadekiosk.log` (also readable in **View log**).
 
 | Version | Date | Changes |
 |---|---|---|
+| 2.2 | 2026-11-14 | Operator menu: Monitor test (nine test patterns), Input test, and a 240p Test Suite launcher. |
 | 2.1.1 | 2026-11-13 | The update script can replace itself safely, and upgrades 2.0.1 installs directly. |
 | 2.1 | 2026-11-13 | Operator menu: Show games (YOKO/TATE only) and a Genres page. Version in the footer instead of button hints. Updates over the internet (operator menu, Scripts menu, `--update`, `auto_update`). `#RRGGBB` colours in `kiosk.ini` now work. |
 | 2.0.1 | 2026-11-13 | Fixed booting to the MiSTer menu with the kiosk build; `.mgl` games work with it. |
