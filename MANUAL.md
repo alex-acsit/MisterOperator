@@ -1,6 +1,6 @@
 # MisterOperator manual
 
-Version 2.5.1. MisterOperator turns a MiSTer FPGA into a locked-down, arcade-only cabinet:
+Version 2.5.2. MisterOperator turns a MiSTer FPGA into a locked-down, arcade-only cabinet:
 players see a game list and one MENU button that always brings them back to it, and the
 operator gets a hidden OPERATOR button that opens a service menu in the same look.
 
@@ -731,6 +731,7 @@ Everything is written to `/tmp/arcadekiosk.log` (also readable in **View log**).
 
 | Version | Date | Changes |
 |---|---|---|
+| 2.5.2 | 2026-11-15 | Printable manual (`MisterOperator_Manual.pdf`, also in the release zip), new logo, and Ope-chan the mascot. |
 | 2.5.1 | 2026-11-15 | Panel shown as 1 2 3 on the top row and 4 5 6 underneath (controller setup picture and docs). |
 | 2.5 | 2026-11-15 | **Wi-Fi** in the operator menu: scan, choose a network and type its password with the stick on an on-screen keyboard. `wifi_country` setting. |
 | 2.4.4 | 2026-11-14 | Kiosk build fix: the silent NVRAM save for cores with their own "Save NVRAM" item, and switching on "Autosave Hiscores", never ran (the build stopped reading a core's options at the first, empty, entry). Install the new build from **MiSTer main** (`OLD: 1 UPDATES`). |

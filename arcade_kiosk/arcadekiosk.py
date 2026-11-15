@@ -69,7 +69,7 @@ from font8x8 import FONT  # noqa: E402
 import monitor_test  # noqa: E402
 import wifi  # noqa: E402
 
-VERSION = "2.5.1"
+VERSION = "2.5.2"
 
 CONFIG_PATH = os.path.join(HERE, "kiosk.ini")
 STATE_PATH = os.path.join(HERE, "state.json")

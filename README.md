@@ -1,4 +1,10 @@
+<p align="center">
+  <img src="branding/logo_light.png" width="560" alt="MisterOperator">
+</p>
+
 # MisterOperator
+
+<img src="branding/mascot.png" width="150" align="right" alt="Ope-chan, the MisterOperator mascot">
 
 **A locked-down, arcade-only frontend for MiSTer FPGA cabinets, built for retrobar operators.**
 
@@ -8,8 +14,9 @@ the MiSTer is reachable while the cabinet is locked.
 
 ![The game list on a landscape (YOKO) and a vertical (TATE) monitor](docs/screens.png)
 
-**Version 2.5.1** · for 15 kHz CRTs and HDMI · USB arcade encoders · nothing to install on
-the MiSTer besides the kiosk · **[Manual](MANUAL.md)**
+**Version 2.5.2** · for 15 kHz CRTs and HDMI · USB arcade encoders · nothing to install on
+the MiSTer besides the kiosk · **[Manual](MANUAL.md)** ·
+**[Printable manual (PDF)](docs/MisterOperator_Manual.pdf)**
 
 ## Features
 
@@ -114,7 +121,8 @@ and the version history. A copy is on the SD card as `arcade_kiosk/MANUAL.md`.
 | `Scripts/` | Installer and updater for the MiSTer Scripts menu |
 | `fork/` | The patch behind the kiosk build of the MiSTer main program ([details](fork/README.md)) |
 | `tests/` | Off-hardware tests |
-| `docs/` | Screenshots |
+| `docs/` | Screenshots, and the printable manual (`MisterOperator_Manual.pdf`, made by `docs/print/make_manual_pdf.py`) |
+| `branding/` | Logo and Ope-chan (オペちゃん), the mascot: SVG and PNG (`make_logo.py` draws the logo) |
 | `MANUAL.md` | The manual |
 
 **Tests:** `tests/run_tests.sh` (Python 3 only). They fake the MiSTer's command pipe, core

@@ -1,0 +1,146 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="84 14 236 300" width="236" height="300">
+  <title>Ope-chan, the MisterOperator mascot</title>
+  <defs>
+    <radialGradient id="screen" cx="50%" cy="40%" r="70%">
+      <stop offset="0" stop-color="#f4fff8"/>
+      <stop offset="0.7" stop-color="#dcf5e5"/>
+      <stop offset="1" stop-color="#b9e6c9"/>
+    </radialGradient>
+    <linearGradient id="iris" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#16502f"/>
+      <stop offset="0.55" stop-color="#289655"/>
+      <stop offset="1" stop-color="#7be3a0"/>
+    </linearGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#2a9e5c"/>
+      <stop offset="0.5" stop-color="#38b96d"/>
+      <stop offset="1" stop-color="#26914f"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffe08a"/>
+      <stop offset="1" stop-color="#e3a823"/>
+    </linearGradient>
+  </defs>
+
+  <g stroke="#1a1c1b" stroke-width="5" stroke-linejoin="round" stroke-linecap="round">
+    <!-- ground shadow -->
+    <ellipse cx="200" cy="452" rx="112" ry="13" fill="#000" opacity="0.14" stroke="none"/>
+
+    <!-- feet -->
+    <ellipse cx="160" cy="432" rx="30" ry="17" fill="#2b302d"/>
+    <ellipse cx="240" cy="432" rx="30" ry="17" fill="#2b302d"/>
+    <ellipse cx="152" cy="426" rx="10" ry="5" fill="#4a524d" stroke="none"/>
+    <ellipse cx="232" cy="426" rx="10" ry="5" fill="#4a524d" stroke="none"/>
+
+    <!-- arms: outline first, then the fill on top -->
+    <path d="M110 300 Q92 286 86 256" fill="none" stroke="#1a1c1b" stroke-width="34"/>
+    <path d="M110 300 Q92 286 86 256" fill="none" stroke="#38b96d" stroke-width="24"/>
+    <path d="M290 300 Q318 292 334 262" fill="none" stroke="#1a1c1b" stroke-width="34"/>
+    <path d="M290 300 Q318 292 334 262" fill="none" stroke="#38b96d" stroke-width="24"/>
+    <circle cx="336" cy="254" r="18" fill="#f5f7f6"/>
+    <path d="M352 232 Q360 240 358 250" fill="none" stroke-width="3.5"/>
+    <path d="M362 222 Q374 236 370 254" fill="none" stroke-width="3.5"/>
+
+    <!-- lower cabinet -->
+    <path d="M120 322 L280 322 L276 420 Q276 430 266 430 L134 430 Q124 430 124 420 Z" fill="url(#body)"/>
+    <!-- coin door -->
+    <rect x="172" y="350" width="56" height="58" rx="8" fill="#1f7a45"/>
+    <rect x="182" y="362" width="12" height="18" rx="3" fill="#ff9f43" stroke-width="3"/>
+    <rect x="206" y="362" width="12" height="18" rx="3" fill="#ff9f43" stroke-width="3"/>
+    <rect x="184" y="390" width="32" height="6" rx="3" fill="#1a1c1b" stroke="none"/>
+
+    <!-- head: marquee + screen bezel -->
+    <path d="M96 92 Q96 64 124 64 L276 64 Q304 64 304 92 L304 288 Q304 300 292 300 L108 300 Q96 300 96 288 Z" fill="url(#body)"/>
+    <!-- marquee -->
+    <rect x="114" y="76" width="172" height="34" rx="10" fill="#1a1c1b"/>
+    <g stroke="none" fill="#5fc882">
+      <!-- "OPE" in chunky pixels -->
+      <rect x="152" y="84" width="4" height="18"/><rect x="164" y="84" width="4" height="18"/>
+      <rect x="156" y="84" width="8" height="4"/><rect x="156" y="98" width="8" height="4"/>
+      <rect x="176" y="84" width="4" height="18"/><rect x="180" y="84" width="10" height="4"/>
+      <rect x="188" y="88" width="4" height="5"/><rect x="180" y="92" width="10" height="4"/>
+      <rect x="200" y="84" width="4" height="18"/><rect x="204" y="84" width="12" height="4"/>
+      <rect x="204" y="91" width="9" height="4"/><rect x="204" y="98" width="12" height="4"/>
+      <circle cx="232" cy="93" r="5" fill="#ff8fa3"/><circle cx="244" cy="93" r="5" fill="#ff8fa3"/>
+      <path d="M227 95 L238 105 L249 95 Z" fill="#ff8fa3"/>
+    </g>
+    <!-- screen bezel and screen (the face) -->
+    <rect x="112" y="120" width="176" height="166" rx="22" fill="#1a1c1b"/>
+    <rect x="122" y="130" width="156" height="146" rx="18" fill="url(#screen)" stroke="none"/>
+    <g stroke="none" fill="#289655" opacity="0.07">
+      <rect x="122" y="140" width="156" height="3"/><rect x="122" y="152" width="156" height="3"/>
+      <rect x="122" y="164" width="156" height="3"/><rect x="122" y="176" width="156" height="3"/>
+      <rect x="122" y="188" width="156" height="3"/><rect x="122" y="200" width="156" height="3"/>
+      <rect x="122" y="212" width="156" height="3"/><rect x="122" y="224" width="156" height="3"/>
+      <rect x="122" y="236" width="156" height="3"/><rect x="122" y="248" width="156" height="3"/>
+      <rect x="122" y="260" width="156" height="3"/>
+    </g>
+    <path d="M134 150 Q138 138 152 136 L176 135" fill="none" stroke="#ffffff" stroke-width="6" opacity="0.8"/>
+
+    <!-- eyes -->
+    <g>
+      <ellipse cx="166" cy="200" rx="21" ry="27" fill="#1a1c1b" stroke="none"/>
+      <ellipse cx="166" cy="203" rx="16" ry="21" fill="url(#iris)" stroke="none"/>
+      <ellipse cx="166" cy="200" rx="9" ry="12" fill="#0f2a1b" stroke="none"/>
+      <circle cx="158" cy="189" r="7.5" fill="#ffffff" stroke="none"/>
+      <circle cx="174" cy="213" r="3.5" fill="#ffffff" stroke="none"/>
+      <path d="M144 176 Q150 168 158 172" fill="none" stroke-width="4"/>
+
+      <ellipse cx="234" cy="200" rx="21" ry="27" fill="#1a1c1b" stroke="none"/>
+      <ellipse cx="234" cy="203" rx="16" ry="21" fill="url(#iris)" stroke="none"/>
+      <ellipse cx="234" cy="200" rx="9" ry="12" fill="#0f2a1b" stroke="none"/>
+      <circle cx="226" cy="189" r="7.5" fill="#ffffff" stroke="none"/>
+      <circle cx="242" cy="213" r="3.5" fill="#ffffff" stroke="none"/>
+      <path d="M256 176 Q250 168 242 172" fill="none" stroke-width="4"/>
+    </g>
+    <!-- blush -->
+    <ellipse cx="140" cy="238" rx="15" ry="8" fill="#ff8fa3" opacity="0.6" stroke="none"/>
+    <ellipse cx="260" cy="238" rx="15" ry="8" fill="#ff8fa3" opacity="0.6" stroke="none"/>
+    <g stroke="#ff6f8a" stroke-width="2.5" opacity="0.7">
+      <path d="M132 236 L136 241"/><path d="M140 235 L144 240"/><path d="M148 236 L152 241"/>
+      <path d="M252 236 L256 241"/><path d="M260 235 L264 240"/><path d="M268 236 L272 241"/>
+    </g>
+    <!-- mouth: ω -->
+    <path d="M186 238 Q193 249 200 239 Q207 249 214 238" fill="none" stroke-width="4"/>
+
+    <!-- control panel -->
+    <path d="M86 298 L314 298 L302 334 L98 334 Z" fill="#f5f7f6"/>
+    <path d="M98 334 L302 334 L300 344 L100 344 Z" fill="#c9cfcc"/>
+    <!-- joystick -->
+    <ellipse cx="140" cy="318" rx="14" ry="6" fill="#40463f" stroke-width="3"/>
+    <rect x="136" y="296" width="8" height="22" rx="3" fill="#c9cfcc" stroke-width="3"/>
+    <circle cx="140" cy="292" r="12" fill="#ff5c7a"/>
+    <circle cx="136" cy="288" r="4" fill="#ffffff" opacity="0.8" stroke="none"/>
+    <!-- buttons -->
+    <ellipse cx="200" cy="312" rx="11" ry="7" fill="#f2c14e" stroke-width="3"/>
+    <ellipse cx="230" cy="308" rx="11" ry="7" fill="#5ad1ff" stroke-width="3"/>
+    <ellipse cx="260" cy="312" rx="11" ry="7" fill="#ff5c7a" stroke-width="3"/>
+    <ellipse cx="200" cy="324" rx="9" ry="5.5" fill="#5fc882" stroke-width="3"/>
+    <ellipse cx="230" cy="322" rx="9" ry="5.5" fill="#f2c14e" stroke-width="3"/>
+    <ellipse cx="260" cy="324" rx="9" ry="5.5" fill="#5ad1ff" stroke-width="3"/>
+
+    <!-- hand + the operator's key -->
+    <g transform="rotate(-20 70 214)">
+      <circle cx="70" cy="190" r="22" fill="url(#gold)"/>
+      <circle cx="70" cy="190" r="9" fill="#ffffff"/>
+      <rect x="64" y="210" width="12" height="56" rx="4" fill="url(#gold)"/>
+      <rect x="76" y="238" width="14" height="9" rx="2" fill="url(#gold)"/>
+      <rect x="76" y="253" width="10" height="9" rx="2" fill="url(#gold)"/>
+      <circle cx="63" cy="182" r="4" fill="#ffffff" opacity="0.8" stroke="none"/>
+    </g>
+    <circle cx="84" cy="252" r="17" fill="#f5f7f6"/>
+
+    <!-- ahoge (hair sprout) -->
+    <path d="M200 64 Q194 34 214 24 Q232 18 228 36 Q222 30 214 36 Q206 44 208 64" fill="#38b96d"/>
+  </g>
+
+  <!-- sparkles -->
+  <g fill="#f2c14e">
+    <path d="M44 120 L49 132 L61 137 L49 142 L44 154 L39 142 L27 137 L39 132 Z"/>
+    <path d="M346 150 L349 158 L357 161 L349 164 L346 172 L343 164 L335 161 L343 158 Z"/>
+  </g>
+  <g fill="#5fc882">
+    <path d="M330 60 L334 70 L344 74 L334 78 L330 88 L326 78 L316 74 L326 70 Z"/>
+    <path d="M92 40 L95 47 L102 50 L95 53 L92 60 L89 53 L82 50 L89 47 Z"/>
+  </g>
+</svg>
