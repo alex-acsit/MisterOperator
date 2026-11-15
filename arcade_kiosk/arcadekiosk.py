@@ -69,7 +69,7 @@ from font8x8 import FONT  # noqa: E402
 import monitor_test  # noqa: E402
 import wifi  # noqa: E402
 
-VERSION = "2.5"
+VERSION = "2.5.1"
 
 CONFIG_PATH = os.path.join(HERE, "kiosk.ini")
 STATE_PATH = os.path.join(HERE, "state.json")
@@ -1292,10 +1292,10 @@ class ControllerWizard:
         for st, dx, dy, ch in (("UP", 1, 0, "^"), ("DOWN", 1, 2, "v"), ("LEFT", 0, 1, "<"), ("RIGHT", 2, 1, ">")):
             box(sx + dx * 20, sy + dy * 18, 18, 16, st, ch)
         c.fill(sx + 24, sy + 22, 10, 8, LINE)
-        # buttons as on the panel: 4 5 6 on top, 1 2 3 underneath
+        # buttons as on the panel: 1 2 3 on top, 4 5 6 underneath
         bx = x0 + 70
         for i in range(6):
-            row = 1 if i < 3 else 0
+            row = 0 if i < 3 else 1
             box(bx + (i % 3) * 26, y + 10 + row * 26, 22, 22, str(i + 1), str(i + 1))
         # start and coin
         ox = bx + 3 * 26 + 10
@@ -2630,8 +2630,8 @@ def _note_created(path, backup_dir):
 # ---------------------------------------------------------------------------
 # Controller setup wizard: what it writes
 # ---------------------------------------------------------------------------
-# The steps, in order. Panel buttons are numbered 1-6 (4 5 6 on the top row,
-# 1 2 3 underneath, as in the standard layout); they're stored in the MiSTer's pad slots B,A,R,Y,X,L,
+# The steps, in order. Panel buttons are numbered 1-6 (1 2 3 on the top row,
+# 4 5 6 underneath, as in the standard layout); they're stored in the MiSTer's pad slots B,A,R,Y,X,L,
 # which is what panel_layout says, so every game gets the same 1-6 layout.
 WIZARD_STEPS = ("UP", "DOWN", "LEFT", "RIGHT", "1", "2", "3", "4", "5", "6", "START", "COIN")
 WIZARD_SLOTS = {"UP": "UP", "DOWN": "DOWN", "LEFT": "LEFT", "RIGHT": "RIGHT",

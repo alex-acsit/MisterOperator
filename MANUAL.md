@@ -1,6 +1,6 @@
 # MisterOperator manual
 
-Version 2.5. MisterOperator turns a MiSTer FPGA into a locked-down, arcade-only cabinet:
+Version 2.5.1. MisterOperator turns a MiSTer FPGA into a locked-down, arcade-only cabinet:
 players see a game list and one MENU button that always brings them back to it, and the
 operator gets a hidden OPERATOR button that opens a service menu in the same look.
 
@@ -291,7 +291,7 @@ Set **Single game** to OFF to get the game list back. The choice is saved as
 **Controller setup** sets up an arcade controller in one pass, without the MiSTer menu.
 Press each control as the screen asks: stick up, down, left and right, then **buttons 1
 to 6**, then **player Start**, then **Coin**. A picture of the panel lights up the control
-to press next (4 5 6 on the top row, 1 2 3 underneath, as in the standard layout).
+to press next (1 2 3 on the top row, 4 5 6 underneath, as in the standard layout).
 The first controller touched is the one being set up; set up player 2 by running it again
 on the other controller.
 
@@ -384,8 +384,8 @@ ignores them, so the file still works everywhere else.
 Every game uses the same panel buttons, laid out as two rows of three:
 
 ```
-4 5 6
 1 2 3
+4 5 6
 ```
 
 Six-button games use 1–6 in order; one- to three-button games use 1, 2, 3; four-button
@@ -731,6 +731,7 @@ Everything is written to `/tmp/arcadekiosk.log` (also readable in **View log**).
 
 | Version | Date | Changes |
 |---|---|---|
+| 2.5.1 | 2026-11-15 | Panel shown as 1 2 3 on the top row and 4 5 6 underneath (controller setup picture and docs). |
 | 2.5 | 2026-11-15 | **Wi-Fi** in the operator menu: scan, choose a network and type its password with the stick on an on-screen keyboard. `wifi_country` setting. |
 | 2.4.4 | 2026-11-14 | Kiosk build fix: the silent NVRAM save for cores with their own "Save NVRAM" item, and switching on "Autosave Hiscores", never ran (the build stopped reading a core's options at the first, empty, entry). Install the new build from **MiSTer main** (`OLD: 1 UPDATES`). |
 | 2.4.3 | 2026-11-14 | Updates use the now-public GitHub repo with no token: `update_token` is gone (removed from `kiosk.ini` by the update), and if GitHub's API refuses, the version comes from the public releases page. |
