@@ -67,8 +67,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from font8x8 import FONT  # noqa: E402
 import monitor_test  # noqa: E402
+import wifi  # noqa: E402
 
-VERSION = "2.4.4"
+VERSION = "2.5"
 
 CONFIG_PATH = os.path.join(HERE, "kiosk.ini")
 STATE_PATH = os.path.join(HERE, "state.json")
@@ -311,6 +312,7 @@ DEFAULTS = {
     "screen": "yoko",
     "dir_keys": "",
     "single_game": "",
+    "wifi_country": "",
 }
 
 
@@ -1327,6 +1329,9 @@ class OperatorView:
         self.patterns = None         # monitor test patterns (page "patterns")
         self.inputs = None           # input tester (page "inputs")
         self.wizard = None           # controller setup (page "controls")
+        self.wifi = None             # Wi-Fi setup (page "wifi")
+        self.wifi_text = "..."       # the WI-FI row's value, looked up in the background
+        threading.Thread(target=self._wifi_status, daemon=True).start()
         self.return_sel = 0          # main-page row to come back to
 
     # -- helpers ------------------------------------------------------------------
@@ -1396,6 +1401,7 @@ class OperatorView:
             ("RESET NVRAM", lambda: ">", None, lambda: self.open_page("nvram")),
             ("RESCAN GAMES", lambda: "", None, self.rescan),
             ("SINGLE GAME", self.single_text, None, lambda: self.open_page("single")),
+            ("WI-FI", lambda: self.wifi_text, None, lambda: self.open_page("wifi")),
             ("CONTROLLER SETUP", lambda: ">", None, lambda: self.open_page("controls")),
             ("MONITOR TEST", lambda: ">", None, lambda: self.open_page("patterns")),
             ("INPUT TEST", lambda: ">", None, lambda: self.open_page("inputs")),
@@ -1495,6 +1501,19 @@ class OperatorView:
     def hidden(self):
         return _genre_set(self.cfg.get("hidden_genres", ""))
 
+    def _wifi_status(self):
+        try:
+            iface = wifi.find_interface()
+            if not iface:
+                self.wifi_text = "NO ADAPTER"
+            else:
+                cur = wifi.current(iface)
+                self.wifi_text = (cur["ssid"].upper()[:14] + " >") if cur["ssid"] else "NOT CONNECTED >"
+        except Exception as e:
+            log("wifi status: %r" % e)
+            self.wifi_text = ">"
+        self.k.need_redraw = True
+
     def single_text(self):
         path = self.cfg.get("single_game", "").strip()
         if not path:
@@ -1540,7 +1559,7 @@ class OperatorView:
         n = self.k.rescan_games()
         self.show_toast("%d GAMES" % n)
 
-    TEST_PAGES = ("patterns", "inputs", "controls")
+    TEST_PAGES = ("patterns", "inputs", "controls", "wifi")
 
     def test_input(self, dev, t, c, v, now):
         """Every control goes here while a test page is up."""
@@ -1551,6 +1570,23 @@ class OperatorView:
             return
         if self.page == "controls":
             self.wizard.event(dev, t, c, v)
+            k.need_redraw = True
+            return
+        if self.page == "wifi":
+            dirn = k._direction_from(dev, t, c, v)
+            if dirn:
+                axis, d = dirn
+                key = (dev.path, "wifi", axis)
+                if k.dir_state.get(key, 0) != d:
+                    k.dir_state[key] = d
+                    self.wifi.direction(axis, d, now)
+                return
+            if t != EV_KEY or v != 1:
+                return
+            role = ("menu" if k.is_menu_btn(dev, c) else "one" if c in k.launch_buttons
+                    else "two" if c in k.genre_buttons else "three" if c in k.genre_back_buttons else None)
+            if role and self.wifi.button(role) == "leave":
+                self.back()
             k.need_redraw = True
             return
         dirn = k._direction_from(dev, t, c, v)
@@ -1581,6 +1617,8 @@ class OperatorView:
 
     def tick(self, now):
         """Called from the main loop while the operator menu is up."""
+        if self.page == "wifi" and self.wifi:
+            self.wifi.tick(now)
         if self.page == "inputs" and self.inputs:
             p = self.inputs.hold_progress(now)
             if self.inputs.should_exit(now):
@@ -1601,7 +1639,10 @@ class OperatorView:
             self.return_sel = self.sel
         self.page, self.sel, self.top, self.confirm = page, 0, 0, None
         k = self.k
-        if page == "controls":
+        if page == "wifi":
+            self.wifi = wifi.WifiSetup(k, self, log, country=self.cfg.get("wifi_country", ""))
+            log("operator menu: wi-fi (%s)" % (self.wifi.iface or "no adapter"))
+        elif page == "controls":
             self.wizard = ControllerWizard(k, self)
             log("operator menu: controller setup")
         elif page == "patterns":
@@ -1655,7 +1696,9 @@ class OperatorView:
             self.confirm = None
         elif self.page != "main":
             self.page, self.sel, self.top = "main", self.return_sel, 0
-            self.patterns = self.inputs = self.wizard = None
+            if self.page == "wifi" or self.wifi:
+                threading.Thread(target=self._wifi_status, daemon=True).start()
+            self.patterns = self.inputs = self.wizard = self.wifi = None
             self.k.dir_state.clear()
             self.k.repeat.clear()
         else:
@@ -1740,6 +1783,9 @@ class OperatorView:
             return
         if self.page == "controls":
             self.wizard.draw(c)
+            return
+        if self.page == "wifi":
+            self.wifi.draw(c, (BG, PANEL, LINE, ACCENT, AMBER, CYAN, TEXT, DIM, SELECT))
             return
         if self.page == "inputs":
             self.inputs.draw(c, (BG, PANEL, LINE, ACCENT, AMBER, CYAN, TEXT, DIM, SELECT),

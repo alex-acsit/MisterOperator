@@ -1,6 +1,6 @@
 # MisterOperator manual
 
-Version 2.4.4. MisterOperator turns a MiSTer FPGA into a locked-down, arcade-only cabinet:
+Version 2.5. MisterOperator turns a MiSTer FPGA into a locked-down, arcade-only cabinet:
 players see a game list and one MENU button that always brings them back to it, and the
 operator gets a hidden OPERATOR button that opens a service menu in the same look.
 
@@ -213,6 +213,7 @@ Every change is saved to `kiosk.ini` at once and keeps its comments.
 | **Rescan games** | Re-reads the arcade folder (after adding or removing games). |
 | **Single game** | Locks the cabinet to one game (see [4.6](#46-single-game-mode)). Shows OFF or the game. |
 | **Controller setup** | Sets up a controller, one press per control (see [4.7](#47-controller-setup)). |
+| **Wi-Fi** | Connects to a Wi-Fi network, password typed with the stick (see [4.8](#48-wi-fi)). Shows the current network, NOT CONNECTED or NO ADAPTER. |
 | **Monitor test** | Full-screen test patterns for adjusting the monitor (see [4.5](#45-monitor-and-input-tests)). |
 | **Input test** | Shows every button and stick as it's pressed (see [4.5](#45-monitor-and-input-tests)). |
 | **View log** | The end of `/tmp/arcadekiosk.log`. Up/down scrolls, left/right pages. |
@@ -309,6 +310,31 @@ the old file is backed up (`--restore-maps` puts it back), and games already set
 the controller get the new directions. It also updates `kiosk.ini` so the game list
 uses the same buttons: 1 and Start play, 2 and 3 change genre, 4 is the letter jump, Coin
 adds a credit, and a stick on unusual keys moves the list (`dir_keys`).
+
+### 4.8 Wi-Fi
+
+**Wi-Fi** connects the MiSTer to a wireless network (it needs a USB Wi-Fi adapter the
+MiSTer supports). It scans when it opens and lists the networks nearby, strongest first,
+with their signal, and LOCK (password), OPEN, WEP or 802.1X. A `*` marks the one the
+MiSTer is on. **Scan again** looks again; **Other (hidden) network** is for one that
+doesn't broadcast its name.
+
+Choose a network with Button 1. For a network with a password, an on-screen keyboard
+opens: move over the keys with the stick (hold it to keep moving), **Button 1** types the
+key, **Button 2** deletes, and **Button 3** (or the DONE key) connects. The bottom row has
+SPACE, DEL, CLEAR, and HIDE/SHOW to hide the password (the last character stays visible).
+MENU cancels. WPA passwords are 8 to 63 characters.
+
+The network is saved in `/media/fat/linux/wpa_supplicant.conf`, the same file the MiSTer's
+own wifi script uses, so networks saved before are kept (the old file is saved as
+`wpa_supplicant.conf.bak`). The newest network is preferred. Only the WPA key worked out
+from the password is stored, not the password itself, and the password is never logged.
+The kiosk then has `wpa_supplicant` reload the file and waits up to 25 seconds; it shows
+CONNECTED with the MiSTer's address, or NOT CONNECTED (usually a wrong password). WEP and
+802.1X (enterprise) networks aren't supported.
+
+`wifi_country` in `kiosk.ini` adds a country code to the file if it has none, so the
+adapter can use all of that country's channels.
 
 ## 5. Features in detail
 
@@ -521,6 +547,7 @@ starting with `;` are comments, and so is anything after a `;` on a line. Restar
 | Setting | Default | |
 |---|---|---|
 | `screen` | `yoko` | `tate_cw` / `tate_ccw` for a vertical monitor |
+| `wifi_country` | blank | Country code (`AU`, `US` ...) for `wpa_supplicant.conf` if it has none |
 | `single_game` | blank | Lock the cabinet to this game (path of an `.mra`/`.mgl`) |
 | `dir_keys` | blank | Extra keys that move the list, e.g. `KEY_R:up` (set by **Controller setup**) |
 | `theme` | `green` | `phosphor`, `classic`; plus `color_<name> = #RRGGBB` |
@@ -631,7 +658,7 @@ Over SSH (`root` / `1` by default), `python3 /media/fat/arcade_kiosk/arcadekiosk
 
 | Path | |
 |---|---|
-| `arcade_kiosk/arcadekiosk.py`, `font8x8.py`, `monitor_test.py` | The kiosk (`monitor_test.py`: test patterns, input test) |
+| `arcade_kiosk/arcadekiosk.py`, `font8x8.py`, `monitor_test.py`, `wifi.py` | The kiosk (`monitor_test.py`: test patterns, input test; `wifi.py`: Wi-Fi setup) |
 | `arcade_kiosk/kiosk.ini` | Settings |
 | `arcade_kiosk/state.json` | Lock state, credits, play counts, last game played |
 | `arcade_kiosk/run.sh` | Starts the kiosk at boot and restarts it if it stops |
@@ -680,6 +707,8 @@ Everything is written to `/tmp/arcadekiosk.log` (also readable in **View log**).
 | "Update check failed" | Check the MiSTer's network (it needs to reach github.com). The log has the details. |
 | A button or stick seems dead | **Input test** shows whether the kiosk sees it, and its code name. |
 | A button does the wrong thing in games | Run **Controller setup** for that controller. |
+| **Wi-Fi** shows NO ADAPTER | The MiSTer has no Wi-Fi adapter it can use. Plug in a supported USB adapter and reboot. |
+| **Wi-Fi** says NOT CONNECTED | Usually a wrong password: choose the network and type it again. If it keeps failing, check the network is WPA/WPA2 and in range. |
 | The cabinet keeps starting the same game | **Single game** is on. Hold OPERATOR, set **Single game** to OFF. |
 | A new version misbehaves | `--rollback`, or copy a folder from `arcade_kiosk/backup/` back. |
 | Turn the kiosk off for good | Remove the `# Arcade Kiosk` lines from `/media/fat/linux/user-startup.sh`, and remove the kiosk build (section 6). Reboot. |
@@ -702,6 +731,7 @@ Everything is written to `/tmp/arcadekiosk.log` (also readable in **View log**).
 
 | Version | Date | Changes |
 |---|---|---|
+| 2.5 | 2026-11-15 | **Wi-Fi** in the operator menu: scan, choose a network and type its password with the stick on an on-screen keyboard. `wifi_country` setting. |
 | 2.4.4 | 2026-11-14 | Kiosk build fix: the silent NVRAM save for cores with their own "Save NVRAM" item, and switching on "Autosave Hiscores", never ran (the build stopped reading a core's options at the first, empty, entry). Install the new build from **MiSTer main** (`OLD: 1 UPDATES`). |
 | 2.4.3 | 2026-11-14 | Updates use the now-public GitHub repo with no token: `update_token` is gone (removed from `kiosk.ini` by the update), and if GitHub's API refuses, the version comes from the public releases page. |
 | 2.4.2 | 2026-11-14 | The log shows, for games that keep NVRAM, which core and save file they use, and whether the save file was actually written when the game was quit. |

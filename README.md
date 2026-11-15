@@ -8,7 +8,7 @@ the MiSTer is reachable while the cabinet is locked.
 
 ![The game list on a landscape (YOKO) and a vertical (TATE) monitor](docs/screens.png)
 
-**Version 2.4.4** · for 15 kHz CRTs and HDMI · USB arcade encoders · nothing to install on
+**Version 2.5** · for 15 kHz CRTs and HDMI · USB arcade encoders · nothing to install on
 the MiSTer besides the kiosk · **[Manual](MANUAL.md)**
 
 ## Features
@@ -28,6 +28,7 @@ the MiSTer besides the kiosk · **[Manual](MANUAL.md)**
   black/white level, grey ramps, purity, overscan, linearity and sharpness patterns, and a
   live tester for every button and stick
 - **Controller setup wizard**: stick, buttons 1–6, player Start and Coin, one press each
+- **Wi-Fi setup**: pick a network and type its password with the stick on an on-screen keyboard
 - **Single-game mode**: lock the cabinet to one game from power-on until OPERATOR is held
 - **Attract mode** plays demos when the cabinet is idle; **idle games quit** by themselves
 - Game settings and high scores (NVRAM) are saved on every quit, so no CMOS errors on games
@@ -51,6 +52,9 @@ the MiSTer besides the kiosk · **[Manual](MANUAL.md)**
 </p>
 <p align="center">
   <img src="docs/controls.png" width="66%" alt="Controller setup wizard and the single-game page">
+</p>
+<p align="center">
+  <img src="docs/wifi.png" width="66%" alt="Wi-Fi network list and on-screen keyboard">
 </p>
 
 ## Install
